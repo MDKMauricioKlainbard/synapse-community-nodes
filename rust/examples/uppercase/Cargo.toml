@@ -1,0 +1,22 @@
+[package]
+name = "uppercase"
+version = "1.0.0"
+edition = "2021"
+description = "Example WORKFLOW community node (Rust -> WASM): uppercases a text field on every item."
+
+# A community node compiles to a WASM module the engine loads as a guest. `cdylib` is what
+# produces a `.wasm` with our exported `alloc`/`run`/`describe`/`memory` and no Rust runtime
+# harness. Build it with: cargo build --release --target wasm32-unknown-unknown
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+workflow-node = { path = "../../workflow-node" }
+serde_json = "1"
+
+# Keep the guest small and predictable: strip and optimize for size. A smaller module is a
+# smaller `NodeVersion.wasmModule` blob and a faster instantiate.
+[profile.release]
+opt-level = "s"
+lto = true
+strip = true

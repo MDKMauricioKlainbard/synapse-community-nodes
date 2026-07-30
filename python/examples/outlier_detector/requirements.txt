@@ -1,0 +1,4 @@
+# This node's pinned-dependency manifest ("lockfile"). NumPy provides the mean/std the node
+# computes. The engine derives the node's satellite pool from hash(language, this file), so
+# every node pinning the same environment shares one worker pool.
+numpy

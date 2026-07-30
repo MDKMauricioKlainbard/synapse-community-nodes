@@ -1,0 +1,50 @@
+# CI for the Synapse community-nodes authoring kit (public repo).
+#
+# The kit is the SDK a community node is written against, in three languages, plus examples.
+# This checks the Rust SDK compiles and its tests pass, and that the Python SDK/examples at
+# least import — the fuller node-submission pipeline lives in the backend.
+
+name: CI
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  rust-sdk:
+    name: rust SDK (cargo test)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust/workflow-node
+      # NOT `--locked`: a published SDK deliberately does not commit Cargo.lock (it would
+      # constrain the consumer's resolution). `--locked` demands a lockfile that by design
+      # does not exist.
+      - run: cargo test
+        working-directory: rust/workflow-node
+
+  python-sdk:
+    name: python SDK (import + examples)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      # Smoke check: the SDK and the example nodes parse and import. The real run happens in
+      # the engine's isolation floor (backend), which this repo cannot reproduce.
+      - name: Import the SDK and examples
+        working-directory: python
+        run: |
+          python -c "import workflow_node; print('workflow_node imports')"
+          python -m py_compile examples/word_count/main.py examples/outlier_detector/main.py
+          echo "examples compile"

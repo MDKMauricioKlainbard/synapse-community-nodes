@@ -1,0 +1,4 @@
+# Rust build artifacts — the SDK crate and every example build here.
+target/
+**/target/
+Cargo.lock

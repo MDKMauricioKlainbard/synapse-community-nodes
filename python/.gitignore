@@ -1,0 +1,6 @@
+# Python caches and packaging output.
+__pycache__/
+*.pyc
+out/
+*.tar.gz
+node.json

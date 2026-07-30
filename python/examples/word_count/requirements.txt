@@ -1,0 +1,8 @@
+# This node's pinned-dependency manifest — its "lockfile". The engine derives the node's
+# satellite pool identity from hash(language, this file): every node with the SAME language
+# and lockfile shares one dependency environment (that is the dependency reuse the design
+# is built around). Change a pin and the node moves to a new pool.
+#
+# word_count uses only the Python standard library, so it pins nothing. A node that needs,
+# say, NumPy would pin it exactly (with hashes) here, e.g.:
+#     numpy==2.1.3 --hash=sha256:...
