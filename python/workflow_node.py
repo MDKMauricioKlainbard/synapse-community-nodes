@@ -183,6 +183,9 @@ class Manifest:
         tags: Optional[List[str]] = None,
         display_name: str = "",
         tier: str = "",
+        category: str = "",
+        provider: str = "",
+        capabilities: Optional[List[str]] = None,
     ):
         self.node_type = node_type
         self.name = name
@@ -206,6 +209,17 @@ class Manifest:
         self.tags = tags or []
         # A palette label distinct from `name` (rarely needed).
         self.display_name = display_name
+        # The node's PRIMARY category — one of the server's controlled slugs (triggers-inputs,
+        # flow-control, data-transformation, files-documents, ai-ml, integrations, developer-tools,
+        # outputs). The SERVER is the authority: a value outside its list degrades to `other`, and
+        # the category is never inferred from tags[0]. Empty = let the server decide (`other`).
+        self.category = category
+        # The product/ecosystem this node belongs to ("Slack", "Google") — not the author. A facet
+        # and a search field. Empty = none.
+        self.provider = provider
+        # Coarse capability slugs the node advertises ("http", "streaming", "file-output"), for
+        # faceting/search. Empty = none.
+        self.capabilities = capabilities or []
 
     def to_json(self) -> Dict[str, Any]:
         out: Dict[str, Any] = {
@@ -225,6 +239,16 @@ class Manifest:
             out["icon"] = self.icon
         if self.tags:
             out["tags"] = list(self.tags)
+        # Catalog-organization metadata (node-catalog redesign) — declared, only emitted when set,
+        # so the contract stays minimal. The control-plane validates `category` against its
+        # controlled list (unknown -> `other`) and derives origin/verified itself; these are
+        # discovery hints, never trust inputs.
+        if self.category:
+            out["category"] = self.category
+        if self.provider:
+            out["provider"] = self.provider
+        if self.capabilities:
+            out["capabilities"] = list(self.capabilities)
         # The tier is emitted so the packer/publisher can resolve it to a lockfile. It is not
         # part of the catalog descriptor the engine renders — it is packaging metadata, the same
         # category as `runtime`/`entrypoint`/`lockfile`.

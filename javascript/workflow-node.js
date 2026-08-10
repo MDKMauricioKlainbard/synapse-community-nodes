@@ -175,6 +175,9 @@ class Manifest {
     tags = [],
     displayName = '',
     tier = '',
+    category = '',
+    provider = '',
+    capabilities = [],
   }) {
     this.nodeType = nodeType;
     this.name = name;
@@ -193,6 +196,13 @@ class Manifest {
     // environment and an author cannot mint a new pool by choosing their own versions.
     // Empty = the node carries its own lockfile the old way (legacy / pre-tier nodes).
     this.tier = tier;
+    // Catalog-organization metadata (node-catalog redesign). `category` is one of the server's
+    // controlled slugs — the SERVER is the authority (an unknown value degrades to `other`, and
+    // the category is never inferred from tags[0]). `provider` is the product/ecosystem, and
+    // `capabilities` are coarse slugs, both for faceting/search. All optional.
+    this.category = category;
+    this.provider = provider;
+    this.capabilities = capabilities;
   }
 
   toJSON() {
@@ -208,6 +218,11 @@ class Manifest {
     if (this.description) out.description = this.description;
     if (this.icon) out.icon = this.icon;
     if (this.tags.length) out.tags = [...this.tags];
+    // Catalog-organization metadata (node-catalog redesign) — only emitted when set, so the
+    // contract stays minimal. The control-plane validates `category` and derives origin/verified.
+    if (this.category) out.category = this.category;
+    if (this.provider) out.provider = this.provider;
+    if (this.capabilities.length) out.capabilities = [...this.capabilities];
     // Packaging metadata (like runtime/entrypoint/lockfile), resolved by the packer/engine —
     // not part of the catalog descriptor.
     if (this.tier) out.tier = this.tier;

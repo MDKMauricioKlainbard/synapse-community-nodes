@@ -330,6 +330,17 @@ pub struct Manifest {
     /// Free-form tags for grouping/search: "tools", "integrations", "science-kit", …
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub tags: Vec<String>,
+    /// The node's PRIMARY category — one of the server's controlled slugs (node-catalog redesign).
+    /// The SERVER is the authority: a value outside its list degrades to `other`, and the category
+    /// is never inferred from tags[0]. Empty -> the server decides (`other`).
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub category: String,
+    /// The product/ecosystem this node belongs to ("Slack", "Google") — not the author. A facet.
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub provider: String,
+    /// Coarse capability slugs ("http", "streaming", "file-output") for faceting/search.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub capabilities: Vec<String>,
     #[serde(rename = "configFields")]
     pub config_fields: Vec<ConfigField>,
     #[serde(rename = "inputFields")]
@@ -350,6 +361,9 @@ impl Manifest {
             description: String::new(),
             icon: String::new(),
             tags: Vec::new(),
+            category: String::new(),
+            provider: String::new(),
+            capabilities: Vec::new(),
             config_fields: Vec::new(),
             input_fields: Vec::new(),
             output_fields: Vec::new(),
@@ -392,6 +406,25 @@ impl Manifest {
     /// Category tags for grouping and search.
     pub fn with_tags(mut self, tags: &[&str]) -> Self {
         self.tags = tags.iter().map(|t| t.to_string()).collect();
+        self
+    }
+
+    /// The node's PRIMARY category — one of the server's controlled slugs (node-catalog redesign).
+    /// A value outside the server's list degrades to `other`.
+    pub fn with_category(mut self, category: &str) -> Self {
+        self.category = category.to_string();
+        self
+    }
+
+    /// The product/ecosystem this node belongs to ("Slack", "Google") — a facet + search field.
+    pub fn with_provider(mut self, provider: &str) -> Self {
+        self.provider = provider.to_string();
+        self
+    }
+
+    /// Coarse capability slugs the node advertises ("http", "streaming"), for faceting/search.
+    pub fn with_capabilities(mut self, capabilities: &[&str]) -> Self {
+        self.capabilities = capabilities.iter().map(|c| c.to_string()).collect();
         self
     }
 }
