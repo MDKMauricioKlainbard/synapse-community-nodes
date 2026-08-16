@@ -73,14 +73,16 @@ const KEY_VALUE_LIST = 'key-value-list';
 const LIST_EDITOR = 'list-editor';
 const CREDENTIAL_SELECT = 'credential-select';
 const FILE_UPLOAD = 'file-upload';
-const SCRIPT = 'script';
+const SCRIPT = 'script';                 // a Rhai code editor
+const PYTHON_SCRIPT = 'python-script';   // a Python code editor, run on a satellite tier (like python_code)
 // Widgets that know something the bare field does not (2026-07-28).
 const FIELD_SELECTOR = 'field-selector';    // combobox over the fields arriving from upstream
 const MULTI_SELECT = 'multi-select';        // several values, stored as a list, not a CSV string
 const JSON_EDITOR = 'json-editor';          // object/list edited as JSON, validated live
 const REGEX_TESTER = 'regex-tester';        // regex + a sample to try it against
 const TIMEZONE_SELECT = 'timezone-select';  // IANA zones, from the browser's own ICU data
-const DATE_PICKER = 'date-picker';          // ISO-8601 date/time
+const DATE_PICKER = 'date-picker';       // ISO-8601 date/time
+const RANGE = 'range';                   // a numeric {start, end} in one row
 
 /** One field the user fills in on your node. This is the UI schema — the frontend renders
  * the form from it, so a node's config is never an opaque blob. */
@@ -101,6 +103,9 @@ class ConfigField {
     /** What a NEW instance of the node starts with. AUTHORING-TIME: the editor seeds it,
      * the engine does not — your `logic` still has to handle the key being absent. */
     this.default = options.default ?? null;
+    // Starter code a code-editor widget (SCRIPT / PYTHON_SCRIPT) is PRE-LOADED with on a fresh
+    // instance — scaffolding the user edits, stating the script's contract. Empty ⇒ none.
+    this.templateCode = options.templateCode ?? '';
     /** `[new ShowWhen('mode', ['custom'])]` — show this field only while every condition
      * holds. Empty = always shown. */
     this.showWhen = options.showWhen ?? null;
@@ -124,6 +129,7 @@ class ConfigField {
     // `header`.
     if (this.default !== null) out.default = this.default;
     if (this.showWhen) out.showWhen = this.showWhen.map((c) => c.toJSON());
+    if (this.templateCode) out.templateCode = this.templateCode;
     return out;
   }
 }
@@ -488,8 +494,8 @@ function node(instance) {
 module.exports = {
   STRING, NUMBER, BOOL, OBJECT, LIST,
   TEXT_FIELD, TEXT_AREA, NUMBER_FIELD, CHECKBOX, SELECT,
-  KEY_VALUE_LIST, LIST_EDITOR, CREDENTIAL_SELECT, FILE_UPLOAD, SCRIPT,
-  FIELD_SELECTOR, MULTI_SELECT, JSON_EDITOR, REGEX_TESTER, TIMEZONE_SELECT, DATE_PICKER,
+  KEY_VALUE_LIST, LIST_EDITOR, CREDENTIAL_SELECT, FILE_UPLOAD, SCRIPT, PYTHON_SCRIPT,
+  FIELD_SELECTOR, MULTI_SELECT, JSON_EDITOR, REGEX_TESTER, TIMEZONE_SELECT, DATE_PICKER, RANGE,
   ConfigField, DataField, Manifest, NodeError, InputFile, Output, OutputBuilder, Node, ShowWhen,
   node, http,
 };

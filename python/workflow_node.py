@@ -64,7 +64,8 @@ LIST_EDITOR = "list-editor"
 # node could have. It should not.
 CREDENTIAL_SELECT = "credential-select"
 FILE_UPLOAD = "file-upload"
-SCRIPT = "script"
+SCRIPT = "script"                    # a Rhai code editor
+PYTHON_SCRIPT = "python-script"      # a Python code editor, run on a satellite tier (like python_code)
 # Widgets that know something the bare field does not.
 FIELD_SELECTOR = "field-selector"    # combobox over the fields arriving from upstream
 MULTI_SELECT = "multi-select"        # several values, stored as a list (not a CSV string)
@@ -72,6 +73,7 @@ JSON_EDITOR = "json-editor"          # object/list edited as JSON, validated liv
 REGEX_TESTER = "regex-tester"        # regex + a sample to try it against
 TIMEZONE_SELECT = "timezone-select"  # IANA zones, from the browser's own ICU data
 DATE_PICKER = "date-picker"          # ISO-8601 date/time
+RANGE = "range"                      # a numeric {start, end} in one row
 
 
 class ConfigField:
@@ -92,6 +94,7 @@ class ConfigField:
         max_length: Optional[int] = None,
         default: Any = None,
         show_when: Optional[List["ShowWhen"]] = None,
+        template_code: str = "",
     ):
         self.name = name
         self.field_type = field_type
@@ -108,6 +111,11 @@ class ConfigField:
         self.default = default
         # Show the field only while every condition holds (AND). Empty = always.
         self.show_when = show_when or []
+        # Starter code a code-editor widget (SCRIPT / PYTHON_SCRIPT) is PRE-LOADED with on a fresh
+        # instance. Unlike `default`, it is scaffolding the user edits: it states the script's
+        # contract (the variables in scope, the shape to return, a required function name). Empty
+        # ⇒ none. The language is implied by the widget, so this is just the code.
+        self.template_code = template_code
 
     def to_json(self) -> Dict[str, Any]:
         out: Dict[str, Any] = {
@@ -133,6 +141,8 @@ class ConfigField:
             out["default"] = self.default
         if self.show_when:
             out["showWhen"] = [c.to_json() for c in self.show_when]
+        if self.template_code:
+            out["templateCode"] = self.template_code
         return out
 
 
@@ -186,6 +196,7 @@ class Manifest:
         category: str = "",
         provider: str = "",
         capabilities: Optional[List[str]] = None,
+        ai_usage: str = "",
     ):
         self.node_type = node_type
         self.name = name
@@ -220,6 +231,10 @@ class Manifest:
         # Coarse capability slugs the node advertises ("http", "streaming", "file-output"), for
         # faceting/search. Empty = none.
         self.capabilities = capabilities or []
+        # A concise usage note written FOR AN AI ASSISTANT (distinct from `description`, the user's
+        # tooltip): how the node wires, the rule easy to get wrong, when to pick another node. The
+        # assistant reads it to use the node right the first time. Advisory only. Empty = none.
+        self.ai_usage = ai_usage
 
     def to_json(self) -> Dict[str, Any]:
         out: Dict[str, Any] = {
@@ -249,6 +264,8 @@ class Manifest:
             out["provider"] = self.provider
         if self.capabilities:
             out["capabilities"] = list(self.capabilities)
+        if self.ai_usage:
+            out["aiUsage"] = self.ai_usage
         # The tier is emitted so the packer/publisher can resolve it to a lockfile. It is not
         # part of the catalog descriptor the engine renders — it is packaging metadata, the same
         # category as `runtime`/`entrypoint`/`lockfile`.
