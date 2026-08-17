@@ -185,6 +185,7 @@ class Manifest {
     provider = '',
     capabilities = [],
     coordinates = {},
+    streaming = false,
   }) {
     this.nodeType = nodeType;
     this.name = name;
@@ -215,6 +216,11 @@ class Manifest {
     // real node — an exotic/omitted world trips the catalog's exotic-world alert. Two nodes compose
     // when destination(a) === origin(b).
     this.coordinates = coordinates || {};
+    // STREAMING PRODUCTION (Slice 8): true when this node's logic PRODUCES INCREMENTALLY (yields
+    // items/chunks instead of returning a full list). The engine dispatches such a node through the
+    // streaming path (result-chunk frames, bounded memory, pipeline overlap). Satellite only; the
+    // node's actual return type must match this, or the worker fails the mismatch explicitly.
+    this.streaming = streaming || false;
   }
 
   toJSON() {
@@ -243,6 +249,8 @@ class Manifest {
     // Packaging metadata (like runtime/entrypoint/lockfile), resolved by the packer/engine —
     // not part of the catalog descriptor.
     if (this.tier) out.tier = this.tier;
+    // Streaming production (Slice 8): only emitted when true, so a batch node's contract is unchanged.
+    if (this.streaming) out.streaming = true;
     return out;
   }
 }

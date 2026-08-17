@@ -212,6 +212,7 @@ class Manifest:
         capabilities: Optional[List[str]] = None,
         ai_usage: str = "",
         coordinates: Optional[Dict[str, str]] = None,
+        streaming: bool = False,
     ):
         self.node_type = node_type
         self.name = name
@@ -257,6 +258,13 @@ class Manifest:
         # source/preserve/contract_selective/contract_total/expand/sink/unknown. Ports:
         # single/fan_out/fan_in. Two nodes compose when destination(a) == origin(b).
         self.coordinates = coordinates or {}
+        # STREAMING PRODUCTION (Slice 8): set True when this node's `logic` PRODUCES ITS OUTPUT
+        # INCREMENTALLY — it `yield`s items/chunks instead of returning a full list. The engine
+        # reads this to dispatch the node through the streaming path (result-chunk frames, bounded
+        # memory, pipeline overlap) rather than collecting one big batch. Only meaningful for a
+        # satellite node; a batch node leaves it False. The node's actual return type must match
+        # this declaration — the worker checks and fails a mismatch explicitly.
+        self.streaming = streaming
 
     def to_json(self) -> Dict[str, Any]:
         out: Dict[str, Any] = {
@@ -298,6 +306,10 @@ class Manifest:
         # category as `runtime`/`entrypoint`/`lockfile`.
         if self.tier:
             out["tier"] = self.tier
+        # Streaming production (Slice 8): only emitted when True, so a batch node's contract is
+        # unchanged. The engine's bundled-node loader reads it onto `BundledNode.streaming`.
+        if self.streaming:
+            out["streaming"] = True
         return out
 
 
