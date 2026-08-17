@@ -429,7 +429,13 @@ class Node:
 
     def logic(self, inputs: List[Item], config: Dict[str, Any]) -> Union[Output, List[Item]]:
         """Your logic: consume the input batch + config, return an `Output` (or, for the
-        single-port case, a plain list of items). Raise `NodeError` to fail cleanly."""
+        single-port case, a plain list of items). Raise `NodeError` to fail cleanly.
+
+        STREAMING (Slice 8): to produce incrementally, make `logic` a GENERATOR — `yield` an
+        `Output` (or a list) per chunk instead of returning one. The engine then streams your
+        output downstream frame by frame, with bounded memory and backpressure (the `yield`
+        blocks while the engine is busy). Declare `streaming=True` in your `Manifest` so the
+        engine dispatches you through the streaming path; the two MUST agree."""
         raise NotImplementedError("a node must implement logic()")
 
 
@@ -467,13 +473,38 @@ def node(instance: Node) -> Callable[[List[Item], Dict[str, Any]], Any]:
             return result.to_raw()
         if isinstance(result, list):
             return result
+        # STREAMING (Slice 8): a `logic` that `yield`s produces a GENERATOR here instead of a
+        # single Output. Return a generator of RAW FRAMES (each the same `{"ports": {...}}` shape a
+        # batch result has); the worker sends one `result_chunk` per frame and the engine consumes
+        # them incrementally. The node declares `streaming=True` in its manifest so the engine sets
+        # up the streaming dispatch; the two must agree, which is why a mismatch is made explicit at
+        # the worker/runner boundary rather than guessed at here.
+        if inspect.isgenerator(result):
+            return _normalize_frames(result)
         raise NodeError(
             "NODE_BAD_OUTPUT",
-            "logic() must return an Output or a list of items",
+            "logic() must return an Output or a list of items (or yield them, for a streaming node)",
         )
 
     run.manifest = instance.manifest()  # type: ignore[attr-defined]
     return run
+
+
+def _normalize_frames(generator: Any):
+    """Adapts a streaming `logic` generator (which yields `Output`s or item lists) into a
+    generator of RAW frames the worker serializes — one per yield. Kept lazy: each frame is
+    normalized as it is pulled, so the node's `yield` and the wire stay in lockstep (which is
+    what lets backpressure reach the node)."""
+    for chunk in generator:
+        if isinstance(chunk, Output):
+            yield chunk.to_raw()
+        elif isinstance(chunk, list):
+            yield {"ports": {Output.DEFAULT_PORT: chunk}}
+        else:
+            raise NodeError(
+                "NODE_BAD_OUTPUT",
+                "a streaming logic() must yield an Output or a list of items",
+            )
 
 
 def _emit_manifest(main_path: str) -> str:
