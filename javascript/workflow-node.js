@@ -184,6 +184,7 @@ class Manifest {
     category = '',
     provider = '',
     capabilities = [],
+    coordinates = {},
   }) {
     this.nodeType = nodeType;
     this.name = name;
@@ -209,6 +210,11 @@ class Manifest {
     this.category = category;
     this.provider = provider;
     this.capabilities = capabilities;
+    // The node's three INTERACTION COORDINATES ("El nodo como flecha"):
+    // { origin, destination, cardinality, ports } with the engine's stable slugs. MANDATORY for a
+    // real node — an exotic/omitted world trips the catalog's exotic-world alert. Two nodes compose
+    // when destination(a) === origin(b).
+    this.coordinates = coordinates || {};
   }
 
   toJSON() {
@@ -229,6 +235,11 @@ class Manifest {
     if (this.category) out.category = this.category;
     if (this.provider) out.provider = this.provider;
     if (this.capabilities.length) out.capabilities = [...this.capabilities];
+    // The three interaction coordinates ("El nodo como flecha"), copied by pack.py into node.json so
+    // the engine ships them to the assistant. Only emitted when declared.
+    if (this.coordinates && Object.keys(this.coordinates).length) {
+      out.coordinates = { ...this.coordinates };
+    }
     // Packaging metadata (like runtime/entrypoint/lockfile), resolved by the packer/engine —
     // not part of the catalog descriptor.
     if (this.tier) out.tier = this.tier;

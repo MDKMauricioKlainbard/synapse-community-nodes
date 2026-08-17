@@ -59,6 +59,11 @@ CHECKBOX = "checkbox"
 SELECT = "select"
 KEY_VALUE_LIST = "key-value-list"
 LIST_EDITOR = "list-editor"
+# A metadata-driven TABLE of homogeneous rows (chart series, param sweeps): one row per element of
+# an owned LIST field, columns declared in this field's `widget_metadata` (see ConfigField). Unlike
+# the bespoke switch-routes/document-composer widgets whose shape is fixed, its columns are
+# node-specific, so the node ships them in the manifest.
+RECORD_TABLE = "record-table"
 # The three the Python SDK could not declare until 2026-07-28 — a Python node had no way to
 # ask for a credential picker or a file picker, which meant the LANGUAGE decided what UI a
 # node could have. It should not.
@@ -95,6 +100,7 @@ class ConfigField:
         default: Any = None,
         show_when: Optional[List["ShowWhen"]] = None,
         template_code: str = "",
+        widget_metadata: Optional[Dict[str, Any]] = None,
     ):
         self.name = name
         self.field_type = field_type
@@ -116,6 +122,12 @@ class ConfigField:
         # contract (the variables in scope, the shape to return, a required function name). Empty
         # ⇒ none. The language is implied by the widget, so this is just the code.
         self.template_code = template_code
+        # PER-FIELD widget metadata (Bloque 5) — the rich contract a composite widget needs and the
+        # bare field cannot express. For a `record-table` widget it declares `ownsFields` (the list
+        # field it edits) plus the `columns` (each {name, label, widget, options?, default?}). Fixed
+        # widgets (condition-builder/switch-routes) compute theirs from the widget type; this is for
+        # widgets whose shape is NODE-specific. Emitted verbatim; the frontend reads it to render.
+        self.widget_metadata = widget_metadata or {}
 
     def to_json(self) -> Dict[str, Any]:
         out: Dict[str, Any] = {
@@ -143,6 +155,8 @@ class ConfigField:
             out["showWhen"] = [c.to_json() for c in self.show_when]
         if self.template_code:
             out["templateCode"] = self.template_code
+        if self.widget_metadata:
+            out["widgetMetadata"] = self.widget_metadata
         return out
 
 
@@ -197,6 +211,7 @@ class Manifest:
         provider: str = "",
         capabilities: Optional[List[str]] = None,
         ai_usage: str = "",
+        coordinates: Optional[Dict[str, str]] = None,
     ):
         self.node_type = node_type
         self.name = name
@@ -235,6 +250,13 @@ class Manifest:
         # tooltip): how the node wires, the rule easy to get wrong, when to pick another node. The
         # assistant reads it to use the node right the first time. Advisory only. Empty = none.
         self.ai_usage = ai_usage
+        # The node's three INTERACTION COORDINATES ("El nodo como flecha") — a dict
+        # {origin, destination, cardinality, ports} with the engine's stable slugs. MANDATORY for a
+        # real node: leaving a world "exotic" (or omitting the dict) trips the catalog's exotic-world
+        # alert. Worlds: void/table/text/file/image/document. Cardinality:
+        # source/preserve/contract_selective/contract_total/expand/sink/unknown. Ports:
+        # single/fan_out/fan_in. Two nodes compose when destination(a) == origin(b).
+        self.coordinates = coordinates or {}
 
     def to_json(self) -> Dict[str, Any]:
         out: Dict[str, Any] = {
@@ -266,6 +288,11 @@ class Manifest:
             out["capabilities"] = list(self.capabilities)
         if self.ai_usage:
             out["aiUsage"] = self.ai_usage
+        # The three interaction coordinates ("El nodo como flecha"), emitted as-is; pack.py copies
+        # them into node.json and the engine ships them to the assistant so it composes by matching
+        # worlds. Only emitted when declared.
+        if self.coordinates:
+            out["coordinates"] = dict(self.coordinates)
         # The tier is emitted so the packer/publisher can resolve it to a lockfile. It is not
         # part of the catalog descriptor the engine renders — it is packaging metadata, the same
         # category as `runtime`/`entrypoint`/`lockfile`.
