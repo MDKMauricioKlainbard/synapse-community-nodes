@@ -214,6 +214,7 @@ class Manifest:
         coordinates: Optional[Dict[str, str]] = None,
         streaming: bool = False,
         production_mode_configurable: bool = False,
+        lane: str = "row",
     ):
         self.node_type = node_type
         self.name = name
@@ -272,6 +273,12 @@ class Manifest:
         # not opt in ignores any `_production`. Left False by default (production is the node's own
         # concern, opened to the user only where the node says it is safe).
         self.production_mode_configurable = production_mode_configurable
+        # DATA LANE (Phase 3): "row" (default) exchanges N per-item dicts; "columnar" exchanges a
+        # pyarrow.Table (contiguous column buffers) so a bulk-numeric node pays no per-item parse at
+        # its boundaries. A columnar node's `logic(table, config)` receives a `pyarrow.Table` (or
+        # None for a source) and returns one — or an `Output` with a file, to LEAVE the lane (e.g. a
+        # renderer emitting a PNG). Opt in deliberately; almost every node stays "row".
+        self.lane = lane
 
     def to_json(self) -> Dict[str, Any]:
         out: Dict[str, Any] = {
@@ -317,6 +324,10 @@ class Manifest:
         # unchanged. The engine's bundled-node loader reads it onto `BundledNode.streaming`.
         if self.streaming:
             out["streaming"] = True
+        # Data lane (Phase 3): only emitted when columnar, so a row node's contract is unchanged.
+        # The engine's bundled-node loader reads it onto `BundledNode.lane`.
+        if self.lane and self.lane != "row":
+            out["lane"] = self.lane
         # Production-mode opt-in (§11.5): lets the user retune a streaming node's emission grouping.
         if self.production_mode_configurable:
             out["productionModeConfigurable"] = True
@@ -450,10 +461,28 @@ class Node:
 
 
 def node(instance: Node) -> Callable[[List[Item], Dict[str, Any]], Any]:
-    """Adapt a `Node` to the module-level `run(inputs, config)` the satellite worker calls.
-    Normalizes the return: an `Output` -> its raw ports; a plain list -> the default port.
-    A `NodeError` propagates (the worker fails the node); anything else is your logic's
-    responsibility. Exposes `.manifest` for the `python -m workflow_node manifest` tool."""
+    """Adapt a `Node` to the module-level `run(...)` the satellite worker calls.
+
+    For a ROW node (the default) `run(inputs, config[, files])` normalizes the return: an `Output`
+    -> its raw ports; a plain list -> the default port; a generator -> streaming frames. For a
+    COLUMNAR node (`Manifest(lane="columnar")`) the worker instead calls `run(table, config)` with a
+    `pyarrow.Table` (or None for a source), and the return is passed through: a `pyarrow.Table` stays
+    columnar (the worker encodes it), an `Output` leaves the lane as a file (e.g. a PNG). A
+    `NodeError` propagates. Exposes `.manifest` for the `python -m workflow_node manifest` tool."""
+
+    manifest = instance.manifest()
+
+    if getattr(manifest, "lane", "row") == "columnar":
+        def run(table: Any, config: Dict[str, Any]) -> Any:
+            # No pyarrow import here: the SDK edge must stay importable without it (pack.py emits the
+            # manifest without the tier's deps). The worker does the Table/dict dispatch on the return.
+            result = instance.logic(table, config or {})
+            if isinstance(result, Output):
+                return result.to_raw()  # leaving the lane: a produced file (raster_image -> PNG)
+            return result  # a pyarrow.Table/RecordBatch — the worker encodes it to the Arrow buffer
+
+        run.manifest = manifest  # type: ignore[attr-defined]
+        return run
 
     def run(inputs: List[Item], config: Dict[str, Any], files: Any = None) -> Any:
         # `files` is passed ONLY to a logic() that declares it. Introspection rather than a
@@ -496,7 +525,7 @@ def node(instance: Node) -> Callable[[List[Item], Dict[str, Any]], Any]:
             "logic() must return an Output or a list of items (or yield them, for a streaming node)",
         )
 
-    run.manifest = instance.manifest()  # type: ignore[attr-defined]
+    run.manifest = manifest  # type: ignore[attr-defined]
     return run
 
 
