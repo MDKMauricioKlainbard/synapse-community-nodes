@@ -186,6 +186,7 @@ class Manifest {
     capabilities = [],
     coordinates = {},
     streaming = false,
+    productionModeConfigurable = false,
   }) {
     this.nodeType = nodeType;
     this.name = name;
@@ -221,6 +222,9 @@ class Manifest {
     // streaming path (result-chunk frames, bounded memory, pipeline overlap). Satellite only; the
     // node's actual return type must match this, or the worker fails the mismatch explicitly.
     this.streaming = streaming || false;
+    // PRODUCTION MODE (§11.5): when true, the user may retune a streaming node's emission grouping
+    // (per-item / chunk / batch) via the reserved `_production` override, like core `csv_stream`.
+    this.productionModeConfigurable = productionModeConfigurable || false;
   }
 
   toJSON() {
@@ -251,6 +255,8 @@ class Manifest {
     if (this.tier) out.tier = this.tier;
     // Streaming production (Slice 8): only emitted when true, so a batch node's contract is unchanged.
     if (this.streaming) out.streaming = true;
+    // Production-mode opt-in (§11.5): lets the user retune a streaming node's emission grouping.
+    if (this.productionModeConfigurable) out.productionModeConfigurable = true;
     return out;
   }
 }

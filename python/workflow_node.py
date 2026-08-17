@@ -213,6 +213,7 @@ class Manifest:
         ai_usage: str = "",
         coordinates: Optional[Dict[str, str]] = None,
         streaming: bool = False,
+        production_mode_configurable: bool = False,
     ):
         self.node_type = node_type
         self.name = name
@@ -265,6 +266,12 @@ class Manifest:
         # satellite node; a batch node leaves it False. The node's actual return type must match
         # this declaration — the worker checks and fails a mismatch explicitly.
         self.streaming = streaming
+        # PRODUCTION MODE (§11.5): when True, the user may retune how this node's STREAMED output is
+        # grouped downstream via the reserved `_production` override (per-item / chunk / batch),
+        # exactly like the core `csv_stream`. Only meaningful for a streaming node; a node that does
+        # not opt in ignores any `_production`. Left False by default (production is the node's own
+        # concern, opened to the user only where the node says it is safe).
+        self.production_mode_configurable = production_mode_configurable
 
     def to_json(self) -> Dict[str, Any]:
         out: Dict[str, Any] = {
@@ -310,6 +317,9 @@ class Manifest:
         # unchanged. The engine's bundled-node loader reads it onto `BundledNode.streaming`.
         if self.streaming:
             out["streaming"] = True
+        # Production-mode opt-in (§11.5): lets the user retune a streaming node's emission grouping.
+        if self.production_mode_configurable:
+            out["productionModeConfigurable"] = True
         return out
 
 
