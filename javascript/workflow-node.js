@@ -567,6 +567,53 @@ function node(instance) {
   return run;
 }
 
+// ---------------------------------------------------------------------------------------
+// Shared helpers for CREATION nodes (naming tabs/sheets/pages from data). Lightweight, no
+// dependency — the "library that helps integrations" as SDK utilities, so every creation node
+// (Google Sheets, and future Notion/Airtable/…) sanitizes and de-duplicates names the same way.
+// ---------------------------------------------------------------------------------------
+
+/** The characters a Google Sheets TAB TITLE may not contain. */
+const SHEET_TITLE_FORBIDDEN = /[[\]*?/\\]/g;
+/** Sheets caps a tab title at 100 characters. */
+const SHEET_TITLE_MAX = 100;
+
+/**
+ * A safe Google Sheets tab title from an arbitrary value (e.g. a group-by cell). Strips the
+ * forbidden characters (`[ ] * ? / \`), collapses whitespace, caps at 100 chars, and never returns
+ * empty — a blank/absent value becomes `fallback` so a row with no group still lands somewhere.
+ */
+function sanitizeSheetTitle(raw, fallback = '(no value)') {
+  const cleaned = String(raw ?? '')
+    .replace(SHEET_TITLE_FORBIDDEN, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, SHEET_TITLE_MAX)
+    .trim();
+  return cleaned || fallback;
+}
+
+/**
+ * De-duplicate a list of tab titles IN ORDER, suffixing repeats ` (2)`, ` (3)`, … (each kept under
+ * the 100-char cap). Case-insensitive, because Sheets treats tab names case-insensitively for
+ * uniqueness. Robust against a suffixed name colliding with a later literal one — it keeps bumping
+ * until the name is free.
+ */
+function dedupeTitles(titles) {
+  const used = new Set();
+  return titles.map((raw) => {
+    let name = raw;
+    let n = 2;
+    while (used.has(name.toLowerCase())) {
+      const suffix = ` (${n})`;
+      name = raw.slice(0, SHEET_TITLE_MAX - suffix.length) + suffix;
+      n += 1;
+    }
+    used.add(name.toLowerCase());
+    return name;
+  });
+}
+
 module.exports = {
   STRING, NUMBER, BOOL, OBJECT, LIST,
   TEXT_FIELD, TEXT_AREA, NUMBER_FIELD, CHECKBOX, SELECT,
@@ -575,4 +622,5 @@ module.exports = {
   DYNAMIC_SELECT,
   ConfigField, DataField, Manifest, NodeError, InputFile, Output, OutputBuilder, Node, ShowWhen,
   node, http,
+  sanitizeSheetTitle, dedupeTitles,
 };
