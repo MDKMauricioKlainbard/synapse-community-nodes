@@ -149,7 +149,12 @@ nodos de control de flujo (\texttt{if}, \texttt{switch}, \texttt{merge}) y, sobr
 todo, ofrece una disciplina de diseño operativa. Se argumenta finalmente que las
 tres coordenadas constituyen una \emph{gramática composicional} que eleva de forma
 notable la calidad de los flujos que un asistente de lenguaje ---incluso uno
-pequeño--- puede construir.
+pequeño--- puede construir. Se añade, por último, una cuarta coordenada de naturaleza
+distinta ---el \emph{carril de transporte}, que distingue el envío por filas del envío
+columnar (Arrow)---: a diferencia de las tres primeras, que son advisorias, su
+frontera es una \emph{cuestión de seguridad}, pues el cruce entre carriles materializa
+un lote acotado en un número arbitrariamente grande de elementos y, sin defensa, un
+solo nodo bastaría para agotar el motor.
 
 \vspace{0.4cm}
 \noindent\textbf{Palabras clave:} diseño de nodos, composicionalidad, relaciones
@@ -676,6 +681,147 @@ para que una punta aterrice en un concentrador. Esta es, exactamente, la deliber
 que el diseño aislado omitía y que causaba el ciclo de retrabajo de la Sección~1.
 
 %============================================================================
+\section{La cuarta coordenada: el carril de transporte}
+%============================================================================
+
+Las tres coordenadas anteriores describen la \emph{forma lógica} de la flecha:
+a qué mundo lleva el dato, cómo cambia su conteo y cómo se ramifica. Ninguna dice
+nada sobre la \emph{representación física} de lo que viaja por el cable. Esa es una
+cuarta coordenada, de naturaleza distinta a las tres, y con una consecuencia que la
+vuelve la más delicada de todas: no es una optimización, es una \emph{frontera de
+seguridad}.
+
+\subsection{Dos carriles para un mismo mundo}
+
+Un mismo mundo ---\mundo{Tabla}--- admite dos maneras de recorrer el cable. En el
+carril \emph{por filas} (\texttt{row}), el modelo histórico, el lote viaja como $N$
+elementos individuales, cada uno una estructura de campos que se materializa y se
+reparsea en cada frontera de nodo. Es lo correcto para casi todo: registros
+heterogéneos, pocos, sobre los que cada nodo opera de a uno. En el carril
+\emph{columnar} (\texttt{columnar}), el lote viaja como \emph{un} único búfer
+contiguo de columnas ---un \texttt{RecordBatch} de Apache Arrow---: cuatro columnas
+de un millón de píxeles son cuatro arreglos tipados, no un millón de diccionarios.
+Es el carril de los datos numéricos masivos y homogéneos: retículas de render,
+soluciones de ecuaciones diferenciales, series de un gráfico.
+
+\begin{definicion}[Carril de transporte]
+El \emph{carril} $\lambda(f)\in\{\texttt{row},\texttt{columnar}\}$ de un nodo es la
+representación física en la que intercambia su lote sobre un mismo mundo. Es
+ortogonal a la firma de mundo: no cambia \emph{a dónde} apunta la flecha, sino
+\emph{cómo} está empaquetado lo que la recorre. Un nodo declara su carril; ausente,
+es \texttt{row}.
+\end{definicion}
+
+Que sea ortogonal significa que dos nodos con la misma firma de mundo
+$\mundo{Tabla}\to\mundo{Tabla}$ pueden vivir en carriles distintos, y que la
+composición ---que las tres coordenadas declaraban lícita en cuanto
+$\operatorname{dst}(a)=\operatorname{src}(b)$--- esconde ahora un matiz físico: si
+$a$ produce en un carril y $b$ consume en otro, \emph{alguien tiene que traducir}.
+
+\subsection{El puente entre carriles no es gratis}
+
+Cuando un productor columnar se conecta a un consumidor por filas, el motor debe
+\emph{materializar} el búfer Arrow: convertir sus columnas en los $N$ elementos
+individuales que el consumidor por filas espera. Esta traducción ---el \emph{puente}
+columnar$\to$fila--- es el punto donde una cantidad acotada se vuelve una cantidad
+enorme. Una retícula de píxeles es, en el carril columnar, \emph{un} objeto: un
+búfer. Cruzada al carril por filas, es un millón de objetos.
+
+\begin{figure}[h]
+\centering
+\begin{tikzpicture}[>=Stealth, font=\small]
+  % columnar -> columnar : un solo bufer
+  \begin{scope}
+    \node[box, fill=synapseSoft] (p1) at (0,0) {productor\\\footnotesize columnar};
+    \node[box, fill=synapseSoft] (c1) at (3.4,0) {consumidor\\\footnotesize columnar};
+    \draw[ar, very thick, synapseCyan] (p1) -- node[above,font=\scriptsize]{1 búfer} (c1);
+    \node[font=\scriptsize] at (1.7,-0.9) {mismo carril: barato};
+  \end{scope}
+  % columnar -> row : explosion
+  \begin{scope}[yshift=-2.6cm]
+    \node[box, fill=synapseSoft] (p2) at (0,0) {productor\\\footnotesize columnar};
+    \node[box] (c2) at (3.8,0) {consumidor\\\footnotesize por filas};
+    \foreach \y in {0.5,0.25,0,-0.25,-0.5}
+      \draw[ar, gray] (p2.east) -- (1.9,\y);
+    \draw[ar, thick] (1.9,0) -- (c2);
+    \node[font=\scriptsize] at (1.9,-1.0) {puente: materializa $N$ ítems};
+  \end{scope}
+\end{tikzpicture}
+\caption{El carril como cuarta coordenada. Columnar$\to$columnar transporta un único
+búfer de extremo a extremo (barato, acotado). Columnar$\to$fila cruza el
+\emph{puente}: el búfer se materializa en $N$ elementos individuales, y $N$ puede ser
+enorme.}
+\label{fig:lane}
+\end{figure}
+
+\subsection{Por qué es una frontera de seguridad y no una optimización}
+
+Aquí está la diferencia esencial con las tres primeras coordenadas. Aquéllas son
+\emph{advisorias}: el motor nunca ejecuta sobre ellas; sirven para que nosotros ---y
+el asistente--- razonemos, pero un flujo que las ignore, a lo sumo, compone mal. El
+carril no admite ese lujo. El puente columnar$\to$fila es una operación real que
+consume memoria real, y si no se acota, \emph{un solo nodo basta para tumbar el
+motor}.
+
+El argumento es directo. Un generador de retícula puede producir, por configuración,
+millones de píxeles ---en el carril columnar, un búfer grande pero manejable---.
+Conéctese ese generador a un único nodo por filas y el puente materializará millones
+de elementos individuales en la memoria del motor, de un solo nodo y una sola arista.
+Peor aún: la coordenada de cardinalidad, que anticipaba las explosiones de lote
+\emph{dentro} de un carril, no ve esta explosión, porque ocurre \emph{en el cruce
+entre} carriles, invisible al eje $N{:}M$. Y la ramificación lo multiplica: un
+productor columnar que abanica hacia $k$ consumidores por filas paga el puente $k$
+veces, aunque cada arista, por separado, parezca inocente.
+
+\begin{observacion}[La vulnerabilidad que la cuarta coordenada expone]
+Un modelo que sólo mirara las tres coordenadas lógicas declararía la conexión
+$\text{retícula}\to\text{nodo por filas}$ como perfectamente válida:
+$\operatorname{dst}=\operatorname{src}=\mundo{Tabla}$, cardinalidad fuente hacia
+preservador, puertos simples. Todo en orden en el papel. Y sin embargo es un ataque
+de denegación de servicio disparable por cualquier usuario con dos nodos. La
+frontera entre carriles es, por tanto, el primer lugar del modelo donde la
+declaración de una coordenada \emph{obliga} a una defensa en el motor, en vez de
+limitarse a guiar el diseño.
+\end{observacion}
+
+\subsection{La disciplina de diseño que impone}
+
+De reconocer el carril como coordenada se siguen tres reglas, y a diferencia de las
+de las secciones anteriores, dos de ellas son \emph{obligaciones del motor}, no
+consejos al diseñador.
+
+\begin{enumerate}[leftmargin=1.6em]
+  \item \textbf{Mantener columnar de extremo a extremo lo pesado.} Un pipeline
+        numérico masivo ---retícula, cómputo, colorear, rasterizar--- debe permanecer
+        en el carril columnar en toda su extensión: un único búfer que fluye sin
+        materializarse jamás. Las conexiones columnar$\leftrightarrow$columnar son las
+        baratas, y el diseño debe favorecerlas para el volumen.
+  \item \textbf{Acotar todo cruce columnar$\to$fila.} Cada puente debe tener un tope
+        duro: por encima de cierto número de filas materializadas, el nodo falla de
+        forma explícita en lugar de agotar la memoria. El tope es una \emph{invariante
+        de seguridad}, no un parámetro ajustable que se pueda desactivar.
+  \item \textbf{Acotar también el agregado.} Como la ramificación multiplica el costo,
+        no basta con topar cada arista: hay que topar la \emph{suma} de lo que todos
+        los puentes de un grafo materializarían, para que un productor que abanica a
+        muchos consumidores no burle el tope por-arista repartiéndose.
+\end{enumerate}
+
+A esto se añade una obligación sobre el canal de \emph{observabilidad}: la traza que
+el motor emite hacia el editor no debe crecer con el volumen de elementos, sino
+mantenerse acotada y coalescente, para que un productor rápido no inunde el canal
+aunque respete los topes de memoria. Es la misma preocupación ---que ninguna cantidad
+declarada por el usuario se traduzca en un costo ilimitado--- vista desde el
+transporte en lugar de la memoria.
+
+\prop{El carril debe declararse como cuarta coordenada precisamente porque su
+frontera es peligrosa. Sólo si cada nodo expone su carril pueden el editor, el
+validador y el asistente distinguir las conexiones baratas (mismo carril) de las que
+cruzan el puente (y están topadas), y sólo entonces puede el motor situar sus
+defensas ---tope por-cruce, cota al productor, presupuesto agregado--- exactamente en
+las aristas que las necesitan. Las tres primeras coordenadas nos enseñan a componer;
+la cuarta nos obliga a protegernos.}
+
+%============================================================================
 \section{Consecuencia: un asistente de IA que compone mejor}
 %============================================================================
 
@@ -741,6 +887,15 @@ ramificación--- bastan para ubicar cualquier nodo en el ecosistema, clasifican 
 un \texttt{chart} hasta un \texttt{switch}, y recuperan como teorema la intuición
 que la relación fallida quería como definición. Cada coordenada se justificó por el
 colapso que resolvía y que la anterior no podía.
+
+A las tres coordenadas componibles se suma una cuarta, de otra índole: el
+\emph{carril de transporte}. Mientras las tres primeras son advisorias ---guían el
+diseño pero el motor no ejecuta sobre ellas---, el carril marca una frontera que el
+motor \emph{debe} custodiar: el puente entre el envío columnar y el envío por filas
+materializa un lote acotado en $N$ elementos, y sin un tope ---por cruce, sobre el
+tamaño del productor y sobre el agregado del grafo--- un único nodo bastaría para
+tumbar el sistema. Es el punto donde el modelo deja de ser sólo una disciplina de
+diseño y se vuelve, además, una disciplina de defensa.
 
 El valor del modelo es, ante todo, metodológico: transforma ``¿qué hace este nodo?''
 en ``¿dónde va su flecha, y ese cruce tiene tráfico?'', y con ello convierte el

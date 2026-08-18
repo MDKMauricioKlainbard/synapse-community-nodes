@@ -64,14 +64,59 @@ sees. Together they give each node a stable address `⟨origin → destination �
 that the palette, the graph validator, and the AI assistant all reason with — the assistant composes
 by matching worlds and checking cardinality, instead of guessing.
 
-## Addendum: the 4th declared property — `lane` (Phase 3)
+## 4. Lane (λ) — how the payload physically travels (`row` | `columnar`)
 
-Later work added a fourth, orthogonal property: the **data lane** a node exchanges on.
+A fourth coordinate, **orthogonal** to the three above and **different in kind**. The first three
+describe the *logical* shape of the arrow (where it points, how it reshapes the batch, how it
+branches). Lane describes the *physical* representation of what rides the wire — and unlike the
+first three it is **not merely advisory: its boundary is a security concern.**
 
-- `row` (default) — N per-item `Struct`s (the historical model). Right for almost everything.
-- `columnar` — a single Apache Arrow table (contiguous column buffers), for bulk homogeneous numeric
-  data (render grids, ODE solutions, chart data). See `WRITING_A_BUNDLED_NODE.md` §9.
+- `row` (default) — the batch travels as N per-item `Struct`s, each materialized and re-parsed at
+  every node boundary. Right for almost everything: heterogeneous records a node handles one at a
+  time.
+- `columnar` — the batch travels as **one** Apache Arrow `RecordBatch` (contiguous column buffers).
+  Four columns of a million pixels are four typed arrays, not a million dicts. This is the lane for
+  bulk homogeneous **numeric** data: render grids, ODE solutions, chart series. See
+  `WRITING_A_BUNDLED_NODE.md` §9.
 
-Lane is about *how the payload travels*, not *where the arrow points* — so it sits beside the three
-coordinates rather than replacing any of them. The two lanes interoperate: the engine/worker bridges
-a row producer into a columnar consumer and vice versa.
+Declared under `lane` in the manifest (absent ⇒ `row`); the engine projects it onto the node
+descriptor (`NodeDescriptor.lane`) so the catalog, the canvas badge and the assistant can see it.
+
+### Why the lane boundary is a security frontier, not an optimization
+
+Two `table → table` nodes can sit on **different lanes**. When a **columnar producer** feeds a **row
+consumer**, the engine must **materialize** the Arrow buffer — turn its columns into the N individual
+items the row consumer expects. This **columnar→row bridge** is where a *bounded* quantity becomes a
+*huge* one: a pixel grid is **one** buffer on the columnar lane, but **N items** once it crosses to a
+row consumer.
+
+The danger, concretely:
+
+- **One node, one edge, a DoS.** A grid node can emit millions of pixels (a large-but-fine Arrow
+  buffer). Wire it into a single row node and the bridge materializes millions of items in engine
+  RAM — from one node and one edge.
+- **Cardinality (κ) can't see it.** κ anticipates batch explosions *within* a lane (`expand` before
+  `contract_total`); this explosion happens *at the crossing between* lanes, invisible to the `N:M`
+  axis.
+- **Fan-out multiplies it.** One columnar producer feeding `k` row consumers pays the bridge `k`
+  times, though each edge alone looks innocent.
+
+So the model treats the first three coordinates as *advisory* (the engine never executes on them) but
+the lane as an **enforced** boundary. The design discipline it imposes:
+
+1. **Keep heavy numeric pipelines columnar end-to-end** (grid → compute → colormap → raster stays
+   columnar: one buffer, never materialized). columnar↔columnar is the cheap connection.
+2. **Cap every columnar→row crossing** — a hard per-crossing row limit; over it the node fails
+   explicitly (`COLUMNAR_ROW_BRIDGE_TOO_LARGE`) instead of exhausting RAM. The cap is a safety
+   invariant, not a switch you can turn off.
+3. **Cap the aggregate too** — because fan-out multiplies, bound the *sum* of what all columnar→row
+   crossings in a graph would materialize (charged to the run's bytes-in-flight budget →
+   `BYTES_IN_FLIGHT_EXCEEDED`), so a producer fanning out can't slip past the per-edge cap.
+
+Plus an observability obligation: the trace the engine emits to the editor must be volume-independent
+(bounded + coalesced), so a fast producer can't flood the channel even while respecting the RAM caps.
+
+**The lane must be declared precisely because its boundary is dangerous:** only if each node exposes
+its lane can the palette, the validator and the assistant tell cheap (same-lane) connections from
+bridged (capped) ones — and only then can the engine place its defenses on exactly the edges that
+need them. The first three coordinates teach us to *compose*; the fourth forces us to *defend*.
