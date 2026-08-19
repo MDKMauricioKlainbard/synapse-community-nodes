@@ -83,6 +83,11 @@ const REGEX_TESTER = 'regex-tester';        // regex + a sample to try it agains
 const TIMEZONE_SELECT = 'timezone-select';  // IANA zones, from the browser's own ICU data
 const DATE_PICKER = 'date-picker';       // ISO-8601 date/time
 const RANGE = 'range';                   // a numeric {start, end} in one row
+// DYNAMIC OPTIONS: a select whose choices are RESOLVED AT CONFIG TIME by the node itself, through
+// the same gateway + credential a run uses (the first real use of `options_source`). Pair it with an
+// `options()` resolver on the node (keyed by this field's name) and `dependsOn` naming the sibling
+// fields — above all the credential — the resolver needs. The frontend refetches on those changes.
+const DYNAMIC_SELECT = 'dynamic-select';
 
 /** One field the user fills in on your node. This is the UI schema — the frontend renders
  * the form from it, so a node's config is never an opaque blob. */
@@ -109,6 +114,10 @@ class ConfigField {
     /** `[new ShowWhen('mode', ['custom'])]` — show this field only while every condition
      * holds. Empty = always shown. */
     this.showWhen = options.showWhen ?? null;
+    /** DYNAMIC_SELECT only: the sibling config fields this field's options depend on (above all its
+     * credential field). The frontend refetches this field's options whenever one changes. The
+     * resolver itself is the node's `options()[name]`. */
+    this.dependsOn = options.dependsOn ?? null;
   }
 
   toJSON() {
@@ -130,6 +139,13 @@ class ConfigField {
     if (this.default !== null) out.default = this.default;
     if (this.showWhen) out.showWhen = this.showWhen.map((c) => c.toJSON());
     if (this.templateCode) out.templateCode = this.templateCode;
+    // DYNAMIC_SELECT: mark the field as having a resolver (`optionsSource`, the field name is the
+    // key the engine looks its resolver up by) and carry its dependencies so the UI knows when to
+    // refetch. Emitted only for the dynamic widget, so every other field's contract is unchanged.
+    if (this.widget === DYNAMIC_SELECT) {
+      out.optionsSource = this.name;
+      out.dependsOn = this.dependsOn ? [...this.dependsOn] : [];
+    }
     return out;
   }
 }
@@ -184,6 +200,9 @@ class Manifest {
     category = '',
     provider = '',
     capabilities = [],
+    coordinates = {},
+    streaming = false,
+    productionModeConfigurable = false,
   }) {
     this.nodeType = nodeType;
     this.name = name;
@@ -209,6 +228,19 @@ class Manifest {
     this.category = category;
     this.provider = provider;
     this.capabilities = capabilities;
+    // The node's three INTERACTION COORDINATES ("El nodo como flecha"):
+    // { origin, destination, cardinality, ports } with the engine's stable slugs. MANDATORY for a
+    // real node — an exotic/omitted world trips the catalog's exotic-world alert. Two nodes compose
+    // when destination(a) === origin(b).
+    this.coordinates = coordinates || {};
+    // STREAMING PRODUCTION (Slice 8): true when this node's logic PRODUCES INCREMENTALLY (yields
+    // items/chunks instead of returning a full list). The engine dispatches such a node through the
+    // streaming path (result-chunk frames, bounded memory, pipeline overlap). Satellite only; the
+    // node's actual return type must match this, or the worker fails the mismatch explicitly.
+    this.streaming = streaming || false;
+    // PRODUCTION MODE (§11.5): when true, the user may retune a streaming node's emission grouping
+    // (per-item / chunk / batch) via the reserved `_production` override, like core `csv_stream`.
+    this.productionModeConfigurable = productionModeConfigurable || false;
   }
 
   toJSON() {
@@ -229,9 +261,18 @@ class Manifest {
     if (this.category) out.category = this.category;
     if (this.provider) out.provider = this.provider;
     if (this.capabilities.length) out.capabilities = [...this.capabilities];
+    // The three interaction coordinates ("El nodo como flecha"), copied by pack.py into node.json so
+    // the engine ships them to the assistant. Only emitted when declared.
+    if (this.coordinates && Object.keys(this.coordinates).length) {
+      out.coordinates = { ...this.coordinates };
+    }
     // Packaging metadata (like runtime/entrypoint/lockfile), resolved by the packer/engine —
     // not part of the catalog descriptor.
     if (this.tier) out.tier = this.tier;
+    // Streaming production (Slice 8): only emitted when true, so a batch node's contract is unchanged.
+    if (this.streaming) out.streaming = true;
+    // Production-mode opt-in (§11.5): lets the user retune a streaming node's emission grouping.
+    if (this.productionModeConfigurable) out.productionModeConfigurable = true;
     return out;
   }
 }
@@ -330,6 +371,18 @@ class Node {
    * `InputFile[]` attached to the batch. Return an `Output` or a plain array of items. */
   async logic() {
     throw new Error('a node must implement logic()');
+  }
+
+  /**
+   * DYNAMIC OPTIONS: the resolvers for your `dynamic-select` fields, keyed by field name.
+   * Each is `async ({ config, http }) => [{ value, label }]` (a bare string counts as both).
+   * `config` is the partial config the user has filled — its credential-select value names the
+   * connected account to spend — and `http` is the SAME gateway your `logic` uses, so a resolver
+   * reaches the provider without ever seeing the secret. Default: none (a node with no dynamic
+   * field never implements this).
+   */
+  options() {
+    return {};
   }
 }
 
@@ -488,7 +541,77 @@ function node(instance) {
     throw new NodeError('NODE_BAD_OUTPUT', 'logic() must return an Output or an array of items');
   };
   run.manifest = instance.manifest();
+
+  /**
+   * DYNAMIC OPTIONS entrypoint (Dynamic Options): resolve ONE dynamic-select field's choices
+   * instead of running the node. The worker calls this when the invocation carries a
+   * `resolve_option_field`. Uses the SDK's own `http` — the same gateway the node's logic uses —
+   * so the resolver injects the credential through the engine and never holds it. Returns items
+   * `{ value, label }` on the default port, exactly what the engine reads back as options.
+   */
+  run.resolveOptions = async (field, config) => {
+    const resolvers = (typeof instance.options === 'function' ? instance.options() : instance.options) || {};
+    const resolver = resolvers[field];
+    if (typeof resolver !== 'function') {
+      throw new NodeError('NO_OPTIONS_RESOLVER', `this node has no options resolver for field '${field}'`);
+    }
+    const resolved = await resolver({ config: config || {}, http });
+    return (resolved || []).map((option) => {
+      if (option && typeof option === 'object' && 'value' in option) {
+        return { value: String(option.value), label: String(option.label ?? option.value) };
+      }
+      return { value: String(option), label: String(option) };
+    });
+  };
+
   return run;
+}
+
+// ---------------------------------------------------------------------------------------
+// Shared helpers for CREATION nodes (naming tabs/sheets/pages from data). Lightweight, no
+// dependency — the "library that helps integrations" as SDK utilities, so every creation node
+// (Google Sheets, and future Notion/Airtable/…) sanitizes and de-duplicates names the same way.
+// ---------------------------------------------------------------------------------------
+
+/** The characters a Google Sheets TAB TITLE may not contain. */
+const SHEET_TITLE_FORBIDDEN = /[[\]*?/\\]/g;
+/** Sheets caps a tab title at 100 characters. */
+const SHEET_TITLE_MAX = 100;
+
+/**
+ * A safe Google Sheets tab title from an arbitrary value (e.g. a group-by cell). Strips the
+ * forbidden characters (`[ ] * ? / \`), collapses whitespace, caps at 100 chars, and never returns
+ * empty — a blank/absent value becomes `fallback` so a row with no group still lands somewhere.
+ */
+function sanitizeSheetTitle(raw, fallback = '(no value)') {
+  const cleaned = String(raw ?? '')
+    .replace(SHEET_TITLE_FORBIDDEN, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, SHEET_TITLE_MAX)
+    .trim();
+  return cleaned || fallback;
+}
+
+/**
+ * De-duplicate a list of tab titles IN ORDER, suffixing repeats ` (2)`, ` (3)`, … (each kept under
+ * the 100-char cap). Case-insensitive, because Sheets treats tab names case-insensitively for
+ * uniqueness. Robust against a suffixed name colliding with a later literal one — it keeps bumping
+ * until the name is free.
+ */
+function dedupeTitles(titles) {
+  const used = new Set();
+  return titles.map((raw) => {
+    let name = raw;
+    let n = 2;
+    while (used.has(name.toLowerCase())) {
+      const suffix = ` (${n})`;
+      name = raw.slice(0, SHEET_TITLE_MAX - suffix.length) + suffix;
+      n += 1;
+    }
+    used.add(name.toLowerCase());
+    return name;
+  });
 }
 
 module.exports = {
@@ -496,6 +619,8 @@ module.exports = {
   TEXT_FIELD, TEXT_AREA, NUMBER_FIELD, CHECKBOX, SELECT,
   KEY_VALUE_LIST, LIST_EDITOR, CREDENTIAL_SELECT, FILE_UPLOAD, SCRIPT, PYTHON_SCRIPT,
   FIELD_SELECTOR, MULTI_SELECT, JSON_EDITOR, REGEX_TESTER, TIMEZONE_SELECT, DATE_PICKER, RANGE,
+  DYNAMIC_SELECT,
   ConfigField, DataField, Manifest, NodeError, InputFile, Output, OutputBuilder, Node, ShowWhen,
   node, http,
+  sanitizeSheetTitle, dedupeTitles,
 };

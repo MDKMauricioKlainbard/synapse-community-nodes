@@ -1,0 +1,956 @@
+%==============================================================================
+%  Synapse — Documento técnico
+%  El nodo como flecha: un modelo de tres coordenadas para el diseño de un
+%  catálogo de nodos componible.
+%
+%  Compilar:  pdflatex Synapse_Node_Model.tex   (dos veces, para el índice)
+%             o:  latexmk -pdf Synapse_Node_Model.tex
+%==============================================================================
+\documentclass[11pt,a4paper]{article}
+
+%--- Codificación e idioma --------------------------------------------------
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[spanish,es-noquoting]{babel}
+\usepackage{lmodern}
+\usepackage{microtype}
+
+%--- Geometría de página ----------------------------------------------------
+\usepackage[a4paper,top=2.6cm,bottom=2.6cm,left=2.8cm,right=2.8cm]{geometry}
+\usepackage{setspace}
+\onehalfspacing
+
+%--- Utilidades -------------------------------------------------------------
+\usepackage{amsmath,amssymb}
+\usepackage{amsthm}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{enumitem}
+\usepackage{abstract}
+\usepackage{titlesec}
+\usepackage{fancyhdr}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta,calc,positioning,fit,backgrounds,shapes.geometric}
+\usepackage{pifont}           % \ding (marcas de verificación)
+\usepackage[hidelinks]{hyperref}
+\usepackage{xcolor}
+
+%--- Acento discreto de marca -----------------------------------------------
+\definecolor{synapseCyan}{HTML}{0E7490}
+\definecolor{synapseInk}{HTML}{212121}
+\definecolor{synapseSoft}{HTML}{E4F1F4}
+
+%--- Estilo de títulos de sección -------------------------------------------
+\titleformat{\section}
+  {\normalfont\Large\bfseries\color{synapseInk}}{\thesection}{0.6em}{}
+\titleformat{\subsection}
+  {\normalfont\large\bfseries\color{synapseInk}}{\thesubsection}{0.6em}{}
+
+%--- Encabezado / pie -------------------------------------------------------
+\pagestyle{fancy}
+\fancyhf{}
+\renewcommand{\headrulewidth}{0.4pt}
+\fancyhead[L]{\small\itshape Synapse — El nodo como flecha}
+\fancyhead[R]{\small\thepage}
+
+%--- Metadatos del PDF ------------------------------------------------------
+\hypersetup{
+  pdftitle={El nodo como flecha: un modelo de tres coordenadas},
+  pdfauthor={Mauricio Daniel Klainbard},
+  pdfsubject={Diseno de un catalogo de nodos componible},
+  colorlinks=false
+}
+
+%--- Entornos ---------------------------------------------------------------
+\theoremstyle{definition}
+\newtheorem{definicion}{Definición}[section]
+\newtheorem{ejemplo}{Ejemplo}[section]
+\theoremstyle{plain}
+\newtheorem{proposicion}{Proposición}[section]
+\newtheorem{observacion}{Observación}[section]
+
+\newcommand{\prop}[1]{\medskip\noindent\textbf{Propiedad.}\enspace\emph{#1}\medskip}
+\newcommand{\mundo}[1]{\textsc{#1}}   % nombre de un mundo de datos
+
+%--- Estilos TikZ -----------------------------------------------------------
+\tikzset{
+  box/.style   ={draw, rounded corners, align=center, font=\small, inner sep=5pt},
+  world/.style ={draw, ellipse, align=center, font=\small,
+                 minimum width=2.3cm, minimum height=1.0cm},
+  hub/.style   ={draw, ellipse, very thick, align=center, font=\small,
+                 minimum width=2.7cm, minimum height=1.3cm, fill=synapseSoft},
+  leaf/.style  ={draw, ellipse, dashed, align=center, font=\small,
+                 minimum width=2.3cm, minimum height=1.0cm},
+  dot/.style   ={circle, draw, fill=synapseInk, inner sep=1.6pt},
+  ar/.style    ={-{Stealth[length=2.2mm]}, thick},
+  no/.style    ={dashed, thick, gray},
+}
+
+\begin{document}
+
+%============================================================================
+%  CARÁTULA
+%============================================================================
+\begin{titlepage}
+\centering
+\vspace*{1.5cm}
+
+{\color{synapseCyan}\rule{\linewidth}{1.2pt}}\\[0.5cm]
+
+{\Huge\bfseries El nodo como flecha\par}
+\vspace{0.4cm}
+{\LARGE Un modelo de tres coordenadas para el diseño\\ de un catálogo de nodos componible\par}
+\vspace{0.3cm}
+{\large\itshape Familias, cardinalidad y mundos de datos\par}
+
+\vspace{0.4cm}
+{\color{synapseCyan}\rule{\linewidth}{1.2pt}}\\[1.6cm]
+
+{\large Documento técnico\par}
+\vspace{0.2cm}
+{\normalsize Motor de automatización de flujos de trabajo\par}
+
+\vfill
+
+{\large Mauricio Daniel Klainbard\par}
+\vspace{0.3cm}
+{\normalsize\today\par}
+\vspace{1.2cm}
+
+{\footnotesize
+Documento de carácter metodológico. Presenta un modelo conceptual para el diseño
+de nodos y su clasificación; es una arquitectura de razonamiento, no una
+especificación de implementación, y no altera los nodos del catálogo actual.\par}
+
+\end{titlepage}
+
+%============================================================================
+%  RESUMEN
+%============================================================================
+\thispagestyle{fancy}
+\begin{abstract}
+\noindent
+Un catálogo de nodos de automatización se diseña, habitualmente, nodo por nodo y
+de forma aislada. Este documento sostiene que el diseño aislado es la causa raíz
+de una patología recurrente: nodos que, al integrarse al ecosistema, exhiben pocas
+interacciones útiles con el resto y obligan a rediseños sucesivos. Como remedio se
+propone un \emph{modelo de diseño} que reemplaza la pregunta ``¿qué hace este
+nodo?'' por ``¿cómo se compone este nodo con los demás?''. El punto de partida es
+un intento fallido pero fructífero: definir las \emph{familias} de nodos como
+clases de equivalencia de una relación de no-conexión. Se muestra que dicha
+relación es reflexiva y simétrica pero \emph{no transitiva}, por lo que no induce
+una partición. El análisis de por qué falla conduce al modelo central: un nodo no
+es un punto sino una \emph{flecha} entre \emph{mundos de datos}, y su lugar en el
+ecosistema queda fijado por tres coordenadas ---la firma de mundo, que fija a la
+vez su origen y su destino; la cardinalidad; y la aridad de puertos que describe
+su ramificación---. Se demuestra que este esquema recupera la intuición original de
+familia como un teorema en lugar de una definición, clasifica correctamente los
+nodos de control de flujo (\texttt{if}, \texttt{switch}, \texttt{merge}) y, sobre
+todo, ofrece una disciplina de diseño operativa. Se argumenta finalmente que las
+tres coordenadas constituyen una \emph{gramática composicional} que eleva de forma
+notable la calidad de los flujos que un asistente de lenguaje ---incluso uno
+pequeño--- puede construir. Se añade, por último, una cuarta coordenada de naturaleza
+distinta ---el \emph{carril de transporte}, que distingue el envío por filas del envío
+columnar (Arrow)---: a diferencia de las tres primeras, que son advisorias, su
+frontera es una \emph{cuestión de seguridad}, pues el cruce entre carriles materializa
+un lote acotado en un número arbitrariamente grande de elementos y, sin defensa, un
+solo nodo bastaría para agotar el motor.
+
+\vspace{0.4cm}
+\noindent\textbf{Palabras clave:} diseño de nodos, composicionalidad, relaciones
+de equivalencia, cardinalidad, tipos de datos, automatización de flujos de trabajo,
+asistentes de lenguaje.
+\end{abstract}
+
+\vspace{0.5cm}
+\tableofcontents
+\newpage
+
+%============================================================================
+\section{La dificultad de diseñar un nodo}
+%============================================================================
+
+\subsection{El diseño aislado y su patología}
+
+Diseñar un nodo parece, a primera vista, un problema local: se elige una operación
+útil ---renderizar un gráfico, resolver una ecuación diferencial, leer una hoja de
+cálculo---, se definen sus parámetros de configuración y su lógica, y se lo agrega
+al catálogo. Esta forma de proceder, que llamaremos \emph{diseño aislado}, trata
+cada nodo como una unidad autocontenida cuya bondad se juzga por lo bien que
+realiza su tarea.
+
+El diseño aislado falla por una razón estructural: un nodo no vive solo. Su valor
+en una plataforma de automatización no reside en lo que hace por sí mismo, sino en
+\emph{con qué otros nodos se compone}. Un nodo excelente en aislamiento pero que no
+recibe datos de ninguna fuente natural, o cuya salida ningún otro nodo puede
+consumir, es un nodo pobre: una isla en el grafo. Y esta propiedad ---la riqueza de
+sus interacciones--- es justamente la que el diseño aislado no contempla, porque
+mira el nodo y no el ecosistema.
+
+La consecuencia práctica es un ciclo de retrabajo. Un nodo concebido de forma
+aislada se implementa, se intenta insertar en flujos reales, y solo entonces se
+descubre que su forma de entrada no coincide con lo que producen los nodos que
+deberían precederlo, o que su salida obliga a intercalar adaptadores, o que su
+cardinalidad hace estallar la tubería. Se lo rediseña; el rediseño revela una nueva
+fricción; se lo vuelve a rediseñar. El costo no está en escribir el nodo sino en
+\emph{descubrir, tarde y empíricamente, cómo debería haber sido su forma}.
+
+\subsection{Una metodología insuficiente: un nodo por día}
+
+Una respuesta natural al problema es organizativa: fijar un ritmo ---por ejemplo, un
+nodo por día--- y avanzar. Pero el ritmo no ataca la causa. Diseñar un nodo por día
+\emph{sigue siendo} diseño aislado, solo que calendarizado; cada nodo se concibe
+sin un marco que lo obligue a declarar, de entrada, cómo encaja con los demás. El
+retrabajo no desaparece: se difiere y se acumula.
+
+Lo que hace falta no es una cadencia sino un \emph{modelo}: un lenguaje pequeño y
+preciso en el que la pregunta ``¿cómo se conecta este nodo con el resto del
+ecosistema?'' se pueda responder \emph{antes} de escribir una sola línea, y en el
+que un mal diseño ---una isla--- sea visible como tal en el papel. El resto de este
+documento construye ese modelo. Es deliberadamente una arquitectura de
+razonamiento, externa al código: no introduce propiedades nuevas en los nodos ni
+mecanismos de verificación en el motor, y no altera en nada el catálogo actual. Su
+único propósito es enseñarnos a diseñar.
+
+%============================================================================
+\section{Un primer intento: las familias como clases de equivalencia}
+%============================================================================
+
+\subsection{La intuición de familia}
+
+La primera observación fructífera es que los nodos se agrupan en \emph{familias}
+definidas por el ecosistema sobre el que operan: la familia de los gráficos
+(\mundo{Chart}), la de las integraciones con un proveedor (\mundo{Google}), la de
+los métodos numéricos. Se buscó dar a esta noción intuitiva una base formal. La
+herramienta evidente, tomada de la teoría de conjuntos, es la \emph{relación de
+equivalencia}: una relación que sea reflexiva, simétrica y transitiva induce una
+partición del conjunto en clases disjuntas~\cite{hrbacek}, y esas clases serían,
+precisamente, las familias.
+
+\subsection{La relación de no-conexión}
+
+Como diseñábamos pensando en la interacción entre familias, se propuso definir la
+relación por su \emph{ausencia}. La observación de partida fue que dos nodos de la
+familia \mundo{Chart} no pueden conectarse entre sí: todos producen una imagen a
+partir de datos numéricos, y ninguno consume una imagen ni produce datos numéricos,
+de modo que la salida de uno nunca alimenta la entrada de otro.
+
+\begin{definicion}[Relación de no-conexión]
+Sean $a,b$ dos nodos. Se dice que $a \perp b$ si y solo si no existe conexión
+posible entre $a$ y $b$ en ninguna de las dos direcciones; es decir, ni la salida
+de $a$ puede alimentar significativamente la entrada de $b$, ni la de $b$ la de
+$a$.
+\end{definicion}
+
+La idea era sembrar cada familia con un nodo representativo $r$ y definir su clase
+como $\{\,x : x \perp r\,\}$. Examinemos si $\perp$ es una relación de equivalencia.
+
+\paragraph{Simetría.} Es inmediata por construcción. La cláusula ``en ninguna de
+las dos direcciones'' es indiferente al orden de $a$ y $b$; luego
+$a \perp b \iff b \perp a$.
+
+\paragraph{Reflexividad.} A primera vista falla. Un nodo \texttt{filter} puede
+conectarse con otro \texttt{filter} ---la salida del primero es una entrada válida
+para el segundo---, de modo que $\lnot(\texttt{filter} \perp \texttt{filter})$. Sin
+embargo, dos nodos de la misma especie encadenados son \emph{reducibles} a uno
+solo: dos filtros en serie equivalen a un único filtro con la conjunción de ambas
+condiciones. Bajo la convención de que dos instancias reducibles se identifican, la
+autoconexión no aporta un grafo genuinamente nuevo, y podemos adoptar
+$a \perp a$ por convención. La reflexividad se sostiene, aunque como estipulación y
+no como hecho.
+
+\subsection{El fracaso: la transitividad}
+
+La propiedad decisiva ---y la que hunde el modelo--- es la transitividad. Para que
+$\perp$ particione, debería cumplirse
+\[
+  (a \perp b) \;\wedge\; (b \perp c) \;\Longrightarrow\; (a \perp c).
+\]
+No se cumple. La razón profunda es que ``no conectar'' es la \emph{negación} de una
+relación de compatibilidad que es a la vez \emph{dirigida} (la salida de uno contra
+la entrada del otro) y de \emph{dos ejes} (qué produce cada nodo, qué consume cada
+nodo); la negación de una relación con esa estructura no es transitiva en general.
+Un contraejemplo mínimo lo exhibe.
+
+\begin{ejemplo}[Ruptura de la transitividad]\label{ej:trans}
+Considérense tres nodos:
+\begin{itemize}[nosep,leftmargin=1.4em]
+  \item $A$: una \emph{fuente numérica} (produce números, no consume nada);
+  \item $B$: una \emph{fuente de imágenes} (produce una imagen, no consume nada);
+  \item $C$: un \texttt{chart} (consume números, produce una imagen).
+\end{itemize}
+Entonces:
+\begin{itemize}[nosep,leftmargin=1.4em]
+  \item $A \perp B$: dos fuentes, ninguna consume la salida de la otra. \checkmark
+  \item $B \perp C$: $C$ consume números y $B$ produce una imagen (incompatible);
+        $B$ no consume nada. \checkmark
+  \item $\lnot(A \perp C)$: $A$ produce números y $C$ los consume, luego
+        $A \to C$ es una conexión legítima. \ding{55}
+\end{itemize}
+Se tiene $A \perp B$ y $B \perp C$ pero $\lnot(A \perp C)$: la transitividad falla.
+\end{ejemplo}
+
+\begin{figure}[h]
+\centering
+\begin{tikzpicture}
+  \node[box] (A) at (0,0)   {$A$\\[2pt]\footnotesize $\varnothing \to$ número};
+  \node[box] (B) at (6,0)   {$B$\\[2pt]\footnotesize $\varnothing \to$ imagen};
+  \node[box] (C) at (3,-2.6){$C$: \texttt{chart}\\[2pt]\footnotesize número $\to$ imagen};
+  \draw[no] (A) -- node[above]{$\perp$} (B);
+  \draw[no] (B) -- node[above right]{$\perp$} (C);
+  \draw[ar,synapseCyan] (A) -- node[above left]{conecta} (C);
+\end{tikzpicture}
+\caption{El contraejemplo del Ejemplo~\ref{ej:trans}. Las aristas punteadas indican
+no-conexión ($\perp$); la flecha llena, una conexión legítima. $A\perp B$ y
+$B\perp C$ no fuerzan $A\perp C$.}
+\label{fig:trans}
+\end{figure}
+
+Hay, además, una segunda grieta que revela que $\perp$ ni siquiera captura la
+noción que pretendía. La familia \mundo{Chart} es, en efecto, cerrada bajo $\perp$
+(sus miembros no se conectan entre sí), pero la familia \mundo{Google} no lo es:
+leer un correo y escribir en una hoja de cálculo son ambos nodos de \mundo{Google}
+y \emph{sí} se conectan. La relación $\perp$ describe un \emph{tipo} de familia ---la
+conversora--- y no otro ---la de proveedor---. La misma causa (la compresión de una
+estructura dirigida y de dos ejes en una relación simétrica de un solo eje) produce
+las dos fallas.
+
+\begin{observacion}
+El intento no fue estéril. Exigirle a la noción de familia las tres propiedades de
+una relación de equivalencia ---la disciplina que Hrbacek y Jech~\cite{hrbacek}
+imponen a toda partición--- es exactamente lo que expuso que $\perp$ era el objeto
+equivocado. Y la teoría de conjuntos ofrece también el remedio: toda función induce
+una relación de equivalencia canónica ---su \emph{núcleo}, $a \sim b \iff f(a)=f(b)$
+---, cuyas clases son las fibras de la función y particionan sin excepción. El
+modelo que sigue no abandona la idea de equivalencia: la funda sobre la función
+correcta.
+\end{observacion}
+
+%============================================================================
+\section{El modelo de tres coordenadas: el nodo como flecha}
+%============================================================================
+
+\subsection{El nodo como flecha entre mundos de datos}
+
+El error de fondo del primer intento fue tratar el nodo como un \emph{punto} que se
+relaciona con otros puntos. La corrección es tratarlo como una \emph{flecha}: un
+nodo transporta datos de un \emph{mundo} a otro.
+
+\begin{definicion}[Nodo como flecha]
+Sea $\mathcal{W}$ el conjunto de \emph{mundos de datos} (la forma semántica que
+puede tener aquello que fluye: una tabla de registros, un texto, una imagen, un
+archivo, la nada, etc.; la Sección~5 los desarrolla). Un nodo $f$ es una flecha
+\[
+  f : X \longrightarrow Y, \qquad X,Y \in \mathcal{W},
+\]
+donde $X=\operatorname{src}(f)$ es su mundo de origen (lo que consume) y
+$Y=\operatorname{dst}(f)$ su mundo de destino (lo que produce).
+\end{definicion}
+
+\begin{figure}[h]
+\centering
+\begin{tikzpicture}
+  \node (x) at (0,0) {$X$};
+  \node (y) at (5,0) {$Y$};
+  \draw[ar] (x) -- node[above]{$f$} (y);
+  \node[font=\footnotesize] at (2.5,-0.55) {origen $\to$ destino};
+\end{tikzpicture}
+\caption{La unidad del modelo: un nodo es una flecha de un mundo de origen a un
+mundo de destino.}
+\label{fig:arrow}
+\end{figure}
+
+Bajo esta lente, la noción de conexión se vuelve precisa y recupera lo que $\perp$
+buscaba a tientas.
+
+\begin{definicion}[Conexión componible]
+Dos nodos $a,b$ se conectan, $a \to b$, de forma significativa si y solo si
+$\operatorname{dst}(a) = \operatorname{src}(b)$: la salida de $a$ vive en el mismo
+mundo que la entrada de $b$. La conexión es, literalmente, la \emph{composición de
+flechas}.
+\end{definicion}
+
+Esto es fiel a la naturaleza del motor, cuyo cable es \emph{no tipado}: por él viaja
+siempre un elemento con una forma libre, y el editor jamás prohíbe una arista. La
+compatibilidad no la impone el grafo; la impone la \emph{forma semántica} ---el
+mundo--- de lo que la flecha produce frente a lo que la siguiente consume. El modelo
+no describe una restricción del motor, sino la disciplina con la que \emph{nosotros}
+razonamos sobre él.
+
+\subsection{La primera coordenada y su insuficiencia}
+
+Con las flechas aparece de inmediato la relación de equivalencia correcta, como
+núcleo de una función.
+
+\begin{definicion}[Firma de mundo]
+La \emph{firma de mundo} de un nodo es el par
+$\sigma(f) = (\operatorname{src}(f), \operatorname{dst}(f))$. Dos nodos son de la
+misma familia-de-mundo cuando $\sigma(a)=\sigma(b)$.
+\end{definicion}
+
+Por ser el núcleo de $\sigma$, esta relación es reflexiva, simétrica y transitiva
+\emph{por construcción}: particiona sin colapsar, y el escenario de colapso que
+temíamos ---un nodo que arrastra dos familias a fusionarse--- es imposible, porque
+las fibras de una función nunca se solapan. Además, la propiedad que $\perp$ quería
+\emph{definir} reaparece aquí como un \emph{teorema}: una familia con
+$\operatorname{src}\neq\operatorname{dst}$ (fuera de la diagonal) es automáticamente
+cerrada bajo no-conexión ---dos flechas $X\to Y$ con $X\neq Y$ no componen, pues
+requeriría $Y=X$---. La familia \mundo{Chart}, toda ella $\mundo{Tabla}\to\mundo{Imagen}$,
+lo satisface. La familia \mundo{Google}, que abarca varias firmas de mundo, no; y
+esa es exactamente la razón por la que sus nodos sí interactúan.
+
+Pero una sola coordenada es \emph{insuficiente}, y el propio catálogo lo delata.
+Considérense tres operaciones sobre tablas:
+\[
+  \texttt{sort} : \mundo{Tabla}\to\mundo{Tabla},\quad
+  \texttt{filter} : \mundo{Tabla}\to\mundo{Tabla},\quad
+  \texttt{reduce} : \mundo{Tabla}\to\mundo{Tabla}.
+\]
+Las tres comparten firma de mundo: caen en la misma clase, la \emph{diagonal}
+$\mundo{Tabla}\to\mundo{Tabla}$. La firma de mundo sugiere entonces que son la misma
+familia y ---peor--- que podrían reducirse a un solo nodo, exactamente como dos
+filtros en serie se reducían a uno. Y sin embargo no lo son: ordenar, filtrar y
+plegar son operaciones distintas que no se sustituyen entre sí. Falta una
+coordenada que las separe.
+
+\subsection{La segunda coordenada: la cardinalidad}
+
+Lo que distingue a \texttt{sort}, \texttt{filter} y \texttt{reduce} no es a dónde
+llevan el dato, sino \emph{cómo transforman la cantidad de elementos}. Esta es la
+segunda coordenada, y es de una clase especialmente sólida: no es vocabulario
+elegido, sino una invariante estructural que se lee de la operación misma.
+
+\begin{definicion}[Cardinalidad]
+La \emph{cardinalidad} $\kappa(f)$ de un nodo describe la relación entre el número
+$N$ de elementos que entran y el número $M$ que salen. Las clases relevantes son:
+\begin{itemize}[nosep,leftmargin=1.4em]
+  \item \textbf{preserva} ($N{:}N$): un elemento entra, un elemento sale
+        (\texttt{sort}, \texttt{set});
+  \item \textbf{contrae selectivo} ($N{:}M,\ M\le N$): descarta elementos
+        (\texttt{filter});
+  \item \textbf{contrae total} ($N{:}1$): pliega el lote en un resultado
+        (\texttt{reduce});
+  \item \textbf{expande} ($N{:}M,\ M\ge N$): un elemento genera varios
+        (\texttt{split\_out});
+  \item \textbf{fuente} ($0{:}N$) y \textbf{sumidero} ($N{:}0$): nace o muere el
+        stream.
+\end{itemize}
+\end{definicion}
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{@{}llll@{}}
+\toprule
+Nodo & Firma de mundo & Cardinalidad & Rol \\
+\midrule
+\texttt{sort}       & \mundo{Tabla}$\to$\mundo{Tabla} & $N{:}N$          & preserva (permuta) \\
+\texttt{set}        & \mundo{Tabla}$\to$\mundo{Tabla} & $N{:}N$          & preserva (transforma por ítem) \\
+\texttt{filter}     & \mundo{Tabla}$\to$\mundo{Tabla} & $N{:}M,\ M\le N$ & contrae selectivo \\
+\texttt{split\_out} & \mundo{Tabla}$\to$\mundo{Tabla} & $N{:}M,\ M\ge N$ & expande \\
+\texttt{reduce}     & \mundo{Tabla}$\to$\mundo{Tabla} & $N{:}1$          & contrae total \\
+\bottomrule
+\end{tabular}
+\caption{La cardinalidad separa la diagonal $\mundo{Tabla}\to\mundo{Tabla}$ que la
+firma de mundo confundía. (Persiste un residuo: \texttt{sort} y \texttt{set} siguen
+compartiendo $N{:}N$; los separa una distinción ulterior, la de transformar el orden
+frente al contenido. La cardinalidad es necesaria, no siempre suficiente: es una
+coordenada más, no la última.)}
+\label{tab:card}
+\end{table}
+
+La cardinalidad no solo refina la clasificación: \emph{compone}, y es ahí donde se
+vuelve una herramienta de diseño y no una mera etiqueta. Si se piensa la
+cardinalidad como un multiplicador sobre el tamaño del lote ---contrae ($<1$),
+preserva ($=1$), expande ($>1$)---, al encadenar nodos los multiplicadores se
+multiplican:
+\[
+  \text{preserva}\circ X = X, \qquad
+  \text{expande}\circ\text{expande} = \text{expande}, \qquad
+  \text{expande}\ \text{seguida de}\ (N{:}1) = 1.
+\]
+De aquí se leen tres consecuencias de diseño. Primera: dos expansores en serie son
+la firma de una \emph{explosión} combinatoria del lote; el modelo la anticipa en el
+papel. Segunda: la reflexividad-por-reducibilidad del intento inicial se precisa
+---se sostiene \emph{dentro de una misma clase de cardinalidad} ($\texttt{sort}\circ
+\texttt{sort}=\texttt{sort}$, $\texttt{filter}\circ\texttt{filter}=\texttt{filter}$),
+pero $\texttt{reduce}\circ\texttt{reduce}$ ya es degenerado---. Tercera: aparece un
+\emph{arco de tubería} canónico, \emph{expandir $\to$ preservar$^*$ $\to$ contraer},
+que es la forma de todo pipeline sano (Figura~\ref{fig:stratum}).
+
+\begin{figure}[h]
+\centering
+\begin{tikzpicture}[node distance=6mm]
+  \node[box, fill=synapseSoft] (s)  {fuente\\\footnotesize $0{:}N$};
+  \node[box, right=1.4cm of s]  (p)  {preservadores\\\footnotesize $N{:}N$};
+  \node[box, right=1.4cm of p]  (c)  {contractor\\\footnotesize $N{:}1$};
+  \node[box, right=1.4cm of c, fill=synapseSoft]  (k)  {sumidero\\\footnotesize $N{:}0$};
+  \draw[ar] (s) -- (p);
+  \draw[ar] (p) -- (c);
+  \draw[ar] (c) -- (k);
+\end{tikzpicture}
+\caption{El estrato de tubería que induce la cardinalidad, ortogonal al eje de
+mundos: las fuentes abren trabajo, los preservadores lo transforman sin cambiar el
+conteo, los contractores lo pliegan, los sumideros lo consumen.}
+\label{fig:stratum}
+\end{figure}
+
+%============================================================================
+\section{El modelo frente a \texttt{if} y \texttt{switch}}
+%============================================================================
+
+Los nodos de control de flujo son la prueba de fuego del modelo, porque no son una
+sola flecha: \texttt{if} tiene dos puertos de salida y \texttt{switch} tiene puertos
+dinámicos. Lejos de romper el esquema, obligan a explicitar la tercera coordenada
+---la aridad de puertos--- que el resto de los nodos usaba de forma trivial.
+
+\subsection{En el eje de mundos: son la identidad}
+
+Lo primero es que \texttt{if} y \texttt{switch} \emph{no tocan el elemento}: entra
+una tabla, sale la misma tabla, sin transformar, por cada puerto. Son enrutadores
+puros. En la firma de mundo son endomorfismos identidad
+$\mundo{Tabla}\to\mundo{Tabla}$, como \texttt{sort}. No mueven el dato a otro mundo;
+lo mueven a otro \emph{cable}.
+
+\subsection{En el eje de cardinalidad: una partición conservativa}
+
+Como caja negra son $N{:}N$: no crean ni destruyen elementos. Pero ese $N$ se
+\emph{reparte} entre $k$ puertos de salida,
+\[
+  N = n_1 + n_2 + \dots + n_k, \qquad n_i \ge 0,
+\]
+y cada puerto, mirado por separado, es $N{:}n_i$ con $n_i \le N$: es decir, \emph{un
+\texttt{filter}}. De aquí la unificación que confirma que el modelo es el correcto:
+\begin{quote}
+\texttt{switch} es un banco de \texttt{filter} en paralelo que particiona el lote;
+\texttt{if} son dos \texttt{filter} complementarios; \texttt{filter} es un
+\texttt{if} al que se le descartó el puerto negativo.
+\end{quote}
+\texttt{filter}, \texttt{if} y \texttt{switch} son la \emph{misma operación} a
+distinta aridad de puertos ($1$ que se conserva, $2$, $k$). Lo único que cambia es
+qué se hace con el resultado del predicado: descartarlo, rutearlo a dos puertos, o a
+$k$ (con un puerto por defecto que hace de la partición una función total sobre el
+elemento).
+
+\begin{figure}[h]
+\centering
+\begin{tikzpicture}[>=Stealth]
+  % if
+  \begin{scope}
+    \node[dot] (ii) at (0,0) {};
+    \node[right=1.6cm of ii] (it) at (1.6,0.7) {};
+    \node (if) at (1.6,-0.7) {};
+    \draw[ar] (ii) -- (1.6,0.7) node[right,font=\footnotesize]{true};
+    \draw[ar] (ii) -- (1.6,-0.7) node[right,font=\footnotesize]{false};
+    \node[font=\small\bfseries] at (0.5,-1.6) {\texttt{if} (1$\to$2)};
+  \end{scope}
+  % switch
+  \begin{scope}[xshift=5cm]
+    \node[dot] (si) at (0,0) {};
+    \draw[ar] (si) -- (1.6,1.0) node[right,font=\footnotesize]{ruta $1$};
+    \draw[ar] (si) -- (1.6,0.3) node[right,font=\footnotesize]{ruta $2$};
+    \draw[ar] (si) -- (1.6,-0.4) node[right,font=\footnotesize]{$\vdots$};
+    \draw[ar] (si) -- (1.6,-1.1) node[right,font=\footnotesize]{defecto};
+    \node[font=\small\bfseries] at (0.5,-1.9) {\texttt{switch} (1$\to k$)};
+  \end{scope}
+  % merge
+  \begin{scope}[xshift=10.5cm]
+    \node[dot] (mo) at (1.8,0) {};
+    \draw[ar] (0,1.0) node[left,font=\footnotesize]{$X_1$} -- (mo);
+    \draw[ar] (0,0.3) node[left,font=\footnotesize]{$X_2$} -- (mo);
+    \draw[ar] (0,-0.4) node[left,font=\footnotesize]{$\vdots$} -- (mo);
+    \draw[ar] (0,-1.1) node[left,font=\footnotesize]{$X_k$} -- (mo);
+    \node[font=\small\bfseries] at (1.3,-1.9) {\texttt{merge} ($k\to$1)};
+  \end{scope}
+\end{tikzpicture}
+\caption{La aridad de puertos como tercera coordenada estructural. \texttt{if} y
+\texttt{switch} ramifican (una entrada, $k$ salidas, partición conservativa);
+\texttt{merge} es su dual exacto (fusiona $k$ entradas en una salida, por unión).}
+\label{fig:ports}
+\end{figure}
+
+\subsection{La coordenada que esto fuerza, y su dual}
+
+Si solo tuviéramos las dos coordenadas anteriores, \texttt{if}/\texttt{switch}
+colapsarían con \texttt{sort} (todos $N{:}N$, $\mundo{Tabla}\to\mundo{Tabla}$). Lo
+que los separa es la \emph{aridad de puertos}: single-port frente a multi-port. Y
+esta coordenada tiene un dual exacto que cierra el modelo con elegancia:
+\texttt{merge} es el co-enrutador ---$k$ puertos de entrada $\to$ uno de salida,
+unión en lugar de partición---. \texttt{switch} y \texttt{merge} son las dos caras
+de una misma moneda: abrir el flujo por predicado y cerrarlo por estrategia.
+
+La familia de control de flujo queda así definida con una firma nítida y
+principista: \emph{identidad en el mundo}, \emph{multi-puerto}, y \emph{cardinalidad
+conservativa} (partición al ramificar, unión al fusionar). Son los nodos que
+reconfiguran la \emph{topología} del flujo sin tocar jamás el dato ---y eso es lo que
+los distingue de la diagonal de transformación, que es single-port---. Los puertos
+dinámicos de \texttt{switch} no son una excepción: su aridad $k$ es un parámetro de
+configuración, el mismo patrón ``configuración $\to$ forma'' que ya gobierna la
+cardinalidad de otros nodos.
+
+Se observa el patrón que estructura todo el modelo: \emph{cada coordenada resuelve
+un colapso que la anterior no podía}. La firma de mundo separó \mundo{Chart} de
+\texttt{filter}, pero fundió \texttt{sort}/\texttt{filter}/\texttt{reduce}; la
+cardinalidad los separó, pero fundió \texttt{sort} con \texttt{if}; la aridad de
+puertos separa el enrutador del transformador. \texttt{if} y \texttt{switch} no son
+una excepción al modelo: son lo que lo completa.
+
+%============================================================================
+\section{Los mundos de datos y la disciplina de diseño}
+%============================================================================
+
+\subsection{Qué es un mundo}
+
+La primera coordenada descansa sobre el conjunto $\mathcal{W}$ de mundos de datos.
+Un mundo es la \emph{forma semántica} de lo que fluye, no su serialización ni su
+tipo en el motor. Es un vocabulario que vive en la cabeza del diseñador; no se
+declara en ningún archivo ni altera nodo alguno. Un catálogo de trabajo usa unos
+pocos:
+
+\begin{itemize}[leftmargin=1.4em]
+  \item \mundo{Tabla} --- una colección de elementos con campos. Es el mundo central,
+        el gran concentrador: casi todo produce o consume tablas.
+  \item \mundo{Texto} --- una cadena sin estructura impuesta; aquí viven el análisis
+        de CSV/JSON y las expresiones regulares.
+  \item \mundo{Archivo} --- bytes opacos referenciados (un adjunto); mundo de
+        entrada de los nodos de documentos y visión.
+  \item \mundo{Imagen} y \mundo{Documento} --- artefactos renderizados (un PNG, un
+        PDF); mundos casi terminales.
+  \item \mundo{Escalar} --- un valor único, el resultado de un pliegue.
+  \item \mundo{Recurso} --- un asa a un objeto de un proveedor (una fila de una hoja
+        de Google, un mensaje de Slack).
+  \item \mundo{Vacío} ($\varnothing$) --- la nada: el origen de las fuentes ($0{:}N$)
+        y el destino de los sumideros ($N{:}0$).
+\end{itemize}
+
+\begin{figure}[h]
+\centering
+\begin{tikzpicture}[>=Stealth]
+  \node[hub]   (tab) at (0,0)      {\mundo{Tabla}};
+  \node[world] (txt) at (-4.6,1.7) {\mundo{Texto}};
+  \node[world] (vac) at (-4.6,-1.7){$\varnothing$};
+  \node[world] (esp) at (0,3.0)    {\mundo{Especif.}};
+  \node[leaf]  (img) at (4.6,1.7)  {\mundo{Imagen}};
+  \node[leaf]  (arc) at (4.6,-1.7) {\mundo{Archivo}};
+  \node[world] (esc) at (0,-3.0)   {\mundo{Escalar}};
+
+  \draw[ar] (txt) to[bend left=8]  node[above,font=\scriptsize]{\texttt{csv\_parse}} (tab);
+  \draw[ar] (tab) to[bend left=8]  node[below,font=\scriptsize]{\texttt{csv\_build}} (txt);
+  \draw[ar] (vac) -- node[below,sloped,font=\scriptsize]{fuentes} (tab);
+  \draw[ar] (esp) -- node[right,font=\scriptsize]{\texttt{ode\_solve}} (tab);
+  \draw[ar] (tab) -- node[above,sloped,font=\scriptsize]{\texttt{chart}} (img);
+  \draw[ar] (tab) -- node[below,sloped,font=\scriptsize]{\texttt{excel\_write}} (arc);
+  \draw[ar] (tab) -- node[right,font=\scriptsize]{\texttt{reduce}} (esc);
+  \draw[ar,synapseCyan] (tab) to[out=-35,in=35,looseness=6]
+        node[right,font=\scriptsize]{\texttt{filter, sort, set, if, switch}} (tab);
+\end{tikzpicture}
+\caption{El mapa de mundos. Los nodos son las flechas. \mundo{Tabla} es el
+concentrador (muchas entradas y salidas); \mundo{Imagen} y \mundo{Archivo} son hojas
+(solo reciben); el lazo sobre \mundo{Tabla} reúne la diagonal de transformación y
+control. Diseñar un nodo es elegir dónde poner su flecha en este mapa.}
+\label{fig:worlds}
+\end{figure}
+
+\subsection{Por qué los mundos guían el diseño}
+
+El mapa de mundos convierte ``diseñar un nodo rico en interacciones'' en una
+instrucción operativa. Un nodo es rico cuando su flecha cae en un \emph{cruce de
+alto tráfico}: su origen es un mundo que muchas familias producen (un destino
+popular) y su destino es un mundo que muchas familias consumen (un origen popular).
+\mundo{Tabla} es el cruce por excelencia; un nodo que atraviesa \mundo{Tabla} en
+cualquiera de sus dos puntas hereda, sin esfuerzo, la posibilidad de componerse con
+todo el resto del catálogo.
+
+El mapa también hace visible el \emph{antipatrón} de un solo vistazo. Un nodo cuya
+flecha va de un \mundo{Mundo\ exótico} a otro \mundo{Mundo\ exótico} ---un mundo que
+ningún otro nodo produce, hacia un mundo que ningún otro consume--- es una isla:
+por bien que realice su tarea, nada puede alimentarlo y nada puede leer su salida.
+Cero interacciones posibles.
+
+\prop{Un nodo $f:X\to Y$ tiene interacciones potenciales no vacías si y solo si
+existe algún nodo cuyo destino sea $X$ (un proveedor de su entrada) y algún nodo
+cuyo origen sea $Y$ (un consumidor de su salida). El diseño aislado no puede
+verificar esta condición porque no mira el resto del mapa; el modelo de mundos la
+vuelve una comprobación previa a escribir el nodo.}
+
+La regla de diseño se enuncia entonces sin ambigüedad: \emph{al menos una de las dos
+puntas de la flecha debe apoyarse en un mundo con tráfico}. Si ambas puntas son
+exóticas, el nodo no debe diseñarse todavía; primero hay que poblar el mundo
+exótico con nodos que lo produzcan o lo consuman, o bien reformular la operación
+para que una punta aterrice en un concentrador. Esta es, exactamente, la deliberación
+que el diseño aislado omitía y que causaba el ciclo de retrabajo de la Sección~1.
+
+%============================================================================
+\section{La cuarta coordenada: el carril de transporte}
+%============================================================================
+
+Las tres coordenadas anteriores describen la \emph{forma lógica} de la flecha:
+a qué mundo lleva el dato, cómo cambia su conteo y cómo se ramifica. Ninguna dice
+nada sobre la \emph{representación física} de lo que viaja por el cable. Esa es una
+cuarta coordenada, de naturaleza distinta a las tres, y con una consecuencia que la
+vuelve la más delicada de todas: no es una optimización, es una \emph{frontera de
+seguridad}.
+
+\subsection{Dos carriles para un mismo mundo}
+
+Un mismo mundo ---\mundo{Tabla}--- admite dos maneras de recorrer el cable. En el
+carril \emph{por filas} (\texttt{row}), el modelo histórico, el lote viaja como $N$
+elementos individuales, cada uno una estructura de campos que se materializa y se
+reparsea en cada frontera de nodo. Es lo correcto para casi todo: registros
+heterogéneos, pocos, sobre los que cada nodo opera de a uno. En el carril
+\emph{columnar} (\texttt{columnar}), el lote viaja como \emph{un} único búfer
+contiguo de columnas ---un \texttt{RecordBatch} de Apache Arrow---: cuatro columnas
+de un millón de píxeles son cuatro arreglos tipados, no un millón de diccionarios.
+Es el carril de los datos numéricos masivos y homogéneos: retículas de render,
+soluciones de ecuaciones diferenciales, series de un gráfico.
+
+\begin{definicion}[Carril de transporte]
+El \emph{carril} $\lambda(f)\in\{\texttt{row},\texttt{columnar}\}$ de un nodo es la
+representación física en la que intercambia su lote sobre un mismo mundo. Es
+ortogonal a la firma de mundo: no cambia \emph{a dónde} apunta la flecha, sino
+\emph{cómo} está empaquetado lo que la recorre. Un nodo declara su carril; ausente,
+es \texttt{row}.
+\end{definicion}
+
+Que sea ortogonal significa que dos nodos con la misma firma de mundo
+$\mundo{Tabla}\to\mundo{Tabla}$ pueden vivir en carriles distintos, y que la
+composición ---que las tres coordenadas declaraban lícita en cuanto
+$\operatorname{dst}(a)=\operatorname{src}(b)$--- esconde ahora un matiz físico: si
+$a$ produce en un carril y $b$ consume en otro, \emph{alguien tiene que traducir}.
+
+En rigor el carril, como la firma de mundo, es un \emph{par}: $\lambda(f) =
+(\lambda_{\mathrm{ent}}, \lambda_{\mathrm{sal}})$, una etiqueta por cada lado de la
+flecha. Y hay una restricción que lo hace preciso: \emph{un carril solo existe sobre
+un lado cuyo mundo es \mundo{Tabla}} ---\texttt{row} y \texttt{columnar} son dos
+codificaciones de una tabla; un lado no-tabla (\mundo{Vacío}, \mundo{Imagen},
+\mundo{Archivo}\dots) no tiene carril---. Así el par distingue exactamente dónde se
+\emph{entra}, se \emph{permanece} o se \emph{sale} del carril columnar: una fuente
+como \texttt{pixel\_grid} es $(\varnothing, \texttt{columnar})$ ---entra al carril---;
+un \texttt{colormap} es $(\texttt{columnar},\texttt{columnar})$ ---permanece---; y un
+\texttt{raster\_image}, que consume columnar pero produce una \mundo{Imagen}, es
+$(\texttt{columnar}, \varnothing)$ ---\emph{sale} del carril, y nada columnar puede
+seguirlo---. Un nodo con una entrada y una salida \mundo{Tabla} en carriles distintos
+lo declararía explícito; en el catálogo actual el par se deriva de la firma de mundo
+más el carril del nodo.
+
+\subsection{El puente entre carriles no es gratis}
+
+Cuando un productor columnar se conecta a un consumidor por filas, el motor debe
+\emph{materializar} el búfer Arrow: convertir sus columnas en los $N$ elementos
+individuales que el consumidor por filas espera. Esta traducción ---el \emph{puente}
+columnar$\to$fila--- es el punto donde una cantidad acotada se vuelve una cantidad
+enorme. Una retícula de píxeles es, en el carril columnar, \emph{un} objeto: un
+búfer. Cruzada al carril por filas, es un millón de objetos.
+
+\begin{figure}[h]
+\centering
+\begin{tikzpicture}[>=Stealth, font=\small]
+  % columnar -> columnar : un solo bufer
+  \begin{scope}
+    \node[box, fill=synapseSoft] (p1) at (0,0) {productor\\\footnotesize columnar};
+    \node[box, fill=synapseSoft] (c1) at (3.4,0) {consumidor\\\footnotesize columnar};
+    \draw[ar, very thick, synapseCyan] (p1) -- node[above,font=\scriptsize]{1 búfer} (c1);
+    \node[font=\scriptsize] at (1.7,-0.9) {mismo carril: barato};
+  \end{scope}
+  % columnar -> row : explosion
+  \begin{scope}[yshift=-2.6cm]
+    \node[box, fill=synapseSoft] (p2) at (0,0) {productor\\\footnotesize columnar};
+    \node[box] (c2) at (3.8,0) {consumidor\\\footnotesize por filas};
+    \foreach \y in {0.5,0.25,0,-0.25,-0.5}
+      \draw[ar, gray] (p2.east) -- (1.9,\y);
+    \draw[ar, thick] (1.9,0) -- (c2);
+    \node[font=\scriptsize] at (1.9,-1.0) {puente: materializa $N$ ítems};
+  \end{scope}
+\end{tikzpicture}
+\caption{El carril como cuarta coordenada. Columnar$\to$columnar transporta un único
+búfer de extremo a extremo (barato, acotado). Columnar$\to$fila cruza el
+\emph{puente}: el búfer se materializa en $N$ elementos individuales, y $N$ puede ser
+enorme.}
+\label{fig:lane}
+\end{figure}
+
+\subsection{Por qué es una frontera de seguridad y no una optimización}
+
+Aquí está la diferencia esencial con las tres primeras coordenadas. Aquéllas son
+\emph{advisorias}: el motor nunca ejecuta sobre ellas; sirven para que nosotros ---y
+el asistente--- razonemos, pero un flujo que las ignore, a lo sumo, compone mal. El
+carril no admite ese lujo. El puente columnar$\to$fila es una operación real que
+consume memoria real, y si no se acota, \emph{un solo nodo basta para tumbar el
+motor}.
+
+El argumento es directo. Un generador de retícula puede producir, por configuración,
+millones de píxeles ---en el carril columnar, un búfer grande pero manejable---.
+Conéctese ese generador a un único nodo por filas y el puente materializará millones
+de elementos individuales en la memoria del motor, de un solo nodo y una sola arista.
+Peor aún: la coordenada de cardinalidad, que anticipaba las explosiones de lote
+\emph{dentro} de un carril, no ve esta explosión, porque ocurre \emph{en el cruce
+entre} carriles, invisible al eje $N{:}M$. Y la ramificación lo multiplica: un
+productor columnar que abanica hacia $k$ consumidores por filas paga el puente $k$
+veces, aunque cada arista, por separado, parezca inocente.
+
+\begin{observacion}[La vulnerabilidad que la cuarta coordenada expone]
+Un modelo que sólo mirara las tres coordenadas lógicas declararía la conexión
+$\text{retícula}\to\text{nodo por filas}$ como perfectamente válida:
+$\operatorname{dst}=\operatorname{src}=\mundo{Tabla}$, cardinalidad fuente hacia
+preservador, puertos simples. Todo en orden en el papel. Y sin embargo es un ataque
+de denegación de servicio disparable por cualquier usuario con dos nodos. La
+frontera entre carriles es, por tanto, el primer lugar del modelo donde la
+declaración de una coordenada \emph{obliga} a una defensa en el motor, en vez de
+limitarse a guiar el diseño.
+\end{observacion}
+
+\subsection{La disciplina de diseño que impone}
+
+De reconocer el carril como coordenada se siguen tres reglas, y a diferencia de las
+de las secciones anteriores, dos de ellas son \emph{obligaciones del motor}, no
+consejos al diseñador.
+
+\begin{enumerate}[leftmargin=1.6em]
+  \item \textbf{Mantener columnar de extremo a extremo lo pesado.} Un pipeline
+        numérico masivo ---retícula, cómputo, colorear, rasterizar--- debe permanecer
+        en el carril columnar en toda su extensión: un único búfer que fluye sin
+        materializarse jamás. Las conexiones columnar$\leftrightarrow$columnar son las
+        baratas, y el diseño debe favorecerlas para el volumen.
+  \item \textbf{Acotar todo cruce columnar$\to$fila.} Cada puente debe tener un tope
+        duro: por encima de cierto número de filas materializadas, el nodo falla de
+        forma explícita en lugar de agotar la memoria. El tope es una \emph{invariante
+        de seguridad}, no un parámetro ajustable que se pueda desactivar.
+  \item \textbf{Acotar también el agregado.} Como la ramificación multiplica el costo,
+        no basta con topar cada arista: hay que topar la \emph{suma} de lo que todos
+        los puentes de un grafo materializarían, para que un productor que abanica a
+        muchos consumidores no burle el tope por-arista repartiéndose.
+\end{enumerate}
+
+A esto se añade una obligación sobre el canal de \emph{observabilidad}: la traza que
+el motor emite hacia el editor no debe crecer con el volumen de elementos, sino
+mantenerse acotada y coalescente, para que un productor rápido no inunde el canal
+aunque respete los topes de memoria. Es la misma preocupación ---que ninguna cantidad
+declarada por el usuario se traduzca en un costo ilimitado--- vista desde el
+transporte en lugar de la memoria.
+
+\prop{El carril debe declararse como cuarta coordenada precisamente porque su
+frontera es peligrosa. Sólo si cada nodo expone su carril pueden el editor, el
+validador y el asistente distinguir las conexiones baratas (mismo carril) de las que
+cruzan el puente (y están topadas), y sólo entonces puede el motor situar sus
+defensas ---tope por-cruce, cota al productor, presupuesto agregado--- exactamente en
+las aristas que las necesitan. Las tres primeras coordenadas nos enseñan a componer;
+la cuarta nos obliga a protegernos.}
+
+%============================================================================
+\section{Consecuencia: un asistente de IA que compone mejor}
+%============================================================================
+
+\subsection{De la generación libre a la búsqueda tipada}
+
+La construcción de un flujo de trabajo por un asistente de lenguaje es, sin un
+modelo, un ejercicio de generación libre: el asistente lee las descripciones en
+lenguaje natural de los nodos, adivina cuáles encajan y produce un grafo cuya
+corrección solo se comprueba al ejecutarlo. Los errores típicos ---conectar la
+salida de un nodo con una entrada que no puede consumirla, encadenar dos expansores
+que hacen estallar el lote, dejar un nodo sin fuente que lo alimente--- son
+exactamente los que el modelo de tres coordenadas caracteriza.
+
+Expuestas al asistente ---como anotaciones del catálogo que él lee, sin cambio alguno
+en los nodos---, las coordenadas convierten esa generación libre en una
+\emph{búsqueda tipada}. Construir un flujo que lleve del mundo $X$ al mundo $Y$ pasa
+a ser hallar un \emph{camino de flechas componibles} en el mapa de mundos: una
+búsqueda en un grafo, donde cada paso respeta $\operatorname{dst}=\operatorname{src}$
+y donde la cardinalidad acumulada advierte de las explosiones y de las conexiones
+degeneradas. La tarea deja de ser ``inventar'' un grafo y pasa a ser ``encontrar''
+uno correcto por composición.
+
+\subsection{Por qué basta un modelo pequeño}
+
+Este cambio de régimen tiene una consecuencia notable sobre el tamaño de modelo
+necesario. La generación libre exige que el modelo lleve dentro, de forma implícita,
+todo el conocimiento de cómo encajan los nodos, y que lo aplique sin equivocarse; es
+una carga que solo los modelos grandes soportan con soltura. La búsqueda tipada
+externaliza ese conocimiento al catálogo: las coordenadas son una \emph{gramática
+composicional} explícita, y al modelo le queda la tarea, mucho más liviana, de
+recorrer un espacio ya estructurado.
+
+\prop{Con las tres coordenadas expuestas en el catálogo, la corrección
+composicional de un flujo ---compatibilidad de mundos, ausencia de explosión
+cardinal, ausencia de nodos aislados--- es verificable por reglas locales sobre cada
+arista. Un asistente que respete esas reglas produce flujos componibles con
+independencia de su tamaño; el modelo grande deja de ser un requisito para la
+corrección y pasa a serlo solo para la ambición del diseño.}
+
+En otras palabras: incluso un modelo pequeño puede construir un excelente flujo de
+trabajo, porque las tres coordenadas le indican cuáles son las mejores conexiones
+posibles y le vedan las imposibles. El modelo que empezó como una disciplina para
+que \emph{nosotros} diseñáramos mejor los nodos resulta ser, sin cambios, la
+disciplina que permite a una máquina \emph{ensamblarlos} mejor. Es la misma
+gramática, leída desde los dos lados.
+
+%============================================================================
+\section{Conclusiones}
+%============================================================================
+
+Este documento partió de una dificultad concreta ---el diseño aislado de nodos y su
+ciclo de retrabajo--- y de un intento honesto pero fallido de remediarlo: definir
+las familias como clases de equivalencia de una relación de no-conexión. El fracaso
+de ese intento en la transitividad no fue un callejón sin salida, sino la señal de
+que el objeto estaba mal elegido. La teoría de conjuntos, que había inspirado el
+intento, ofreció también la salida: fundar la equivalencia sobre el núcleo de una
+función en lugar de sobre una relación postulada a mano.
+
+Esa función es la \emph{firma} del nodo, y el nodo mismo dejó de ser un punto para
+ser una \emph{flecha} entre mundos de datos. Tres coordenadas ---la firma de mundo,
+que fija origen y destino; la cardinalidad; y la aridad de puertos que gobierna la
+ramificación--- bastan para ubicar cualquier nodo en el ecosistema, clasifican desde
+un \texttt{chart} hasta un \texttt{switch}, y recuperan como teorema la intuición
+que la relación fallida quería como definición. Cada coordenada se justificó por el
+colapso que resolvía y que la anterior no podía.
+
+A las tres coordenadas componibles se suma una cuarta, de otra índole: el
+\emph{carril de transporte}. Mientras las tres primeras son advisorias ---guían el
+diseño pero el motor no ejecuta sobre ellas---, el carril marca una frontera que el
+motor \emph{debe} custodiar: el puente entre el envío columnar y el envío por filas
+materializa un lote acotado en $N$ elementos, y sin un tope ---por cruce, sobre el
+tamaño del productor y sobre el agregado del grafo--- un único nodo bastaría para
+tumbar el sistema. Es el punto donde el modelo deja de ser sólo una disciplina de
+diseño y se vuelve, además, una disciplina de defensa.
+
+El valor del modelo es, ante todo, metodológico: transforma ``¿qué hace este nodo?''
+en ``¿dónde va su flecha, y ese cruce tiene tráfico?'', y con ello convierte el
+diseño rico en interacciones de un hallazgo tardío y empírico en una comprobación
+previa. Que la misma estructura, expuesta a un asistente de lenguaje, convierta la
+construcción de flujos en una búsqueda tipada al alcance de modelos pequeños, es la
+confirmación de que las coordenadas capturan algo real sobre cómo se componen los
+nodos ---y no meramente sobre cómo los nombramos---. El modelo no restringe el motor
+ni toca el catálogo: solo nos enseña a mirarlo. Pero esa mirada es, precisamente, lo
+que faltaba.
+
+%============================================================================
+%  Referencias
+%============================================================================
+\begin{thebibliography}{9}
+
+\bibitem{hrbacek}
+K.~Hrbacek and T.~Jech.
+\newblock \emph{Introduction to Set Theory}, 3rd ed.
+\newblock Marcel Dekker, New York, 1999.
+\newblock (Relaciones de equivalencia, particiones y el núcleo de una función:
+cap.~2.)
+
+\bibitem{maclane}
+S.~Mac~Lane.
+\newblock \emph{Categories for the Working Mathematician}, 2nd ed.
+\newblock Springer, 1998.
+\newblock (El nodo como morfismo y la conexión como composición de flechas.)
+
+\bibitem{pierce}
+B.~C. Pierce.
+\newblock \emph{Basic Category Theory for Computer Scientists}.
+\newblock MIT Press, 1991.
+
+\bibitem{synapse}
+Mauricio Daniel Klainbard.
+\newblock \emph{Synapse: un modelo de ejecución con cómputo en el flujo}.
+\newblock Documento técnico, \the\year{}.
+\newblock (Modelo de streaming, cardinalidad de consumo y rompedores de tubería.)
+
+\end{thebibliography}
+
+\end{document}

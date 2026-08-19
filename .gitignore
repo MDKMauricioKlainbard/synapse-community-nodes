@@ -5,3 +5,11 @@ __pycache__/
 
 # Rust
 target/
+
+# LaTeX build artifacts
+*.aux
+*.fdb_latexmk
+*.fls
+*.log
+*.out
+*.toc

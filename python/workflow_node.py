@@ -59,6 +59,11 @@ CHECKBOX = "checkbox"
 SELECT = "select"
 KEY_VALUE_LIST = "key-value-list"
 LIST_EDITOR = "list-editor"
+# A metadata-driven TABLE of homogeneous rows (chart series, param sweeps): one row per element of
+# an owned LIST field, columns declared in this field's `widget_metadata` (see ConfigField). Unlike
+# the bespoke switch-routes/document-composer widgets whose shape is fixed, its columns are
+# node-specific, so the node ships them in the manifest.
+RECORD_TABLE = "record-table"
 # The three the Python SDK could not declare until 2026-07-28 — a Python node had no way to
 # ask for a credential picker or a file picker, which meant the LANGUAGE decided what UI a
 # node could have. It should not.
@@ -95,6 +100,7 @@ class ConfigField:
         default: Any = None,
         show_when: Optional[List["ShowWhen"]] = None,
         template_code: str = "",
+        widget_metadata: Optional[Dict[str, Any]] = None,
     ):
         self.name = name
         self.field_type = field_type
@@ -116,6 +122,12 @@ class ConfigField:
         # contract (the variables in scope, the shape to return, a required function name). Empty
         # ⇒ none. The language is implied by the widget, so this is just the code.
         self.template_code = template_code
+        # PER-FIELD widget metadata (Bloque 5) — the rich contract a composite widget needs and the
+        # bare field cannot express. For a `record-table` widget it declares `ownsFields` (the list
+        # field it edits) plus the `columns` (each {name, label, widget, options?, default?}). Fixed
+        # widgets (condition-builder/switch-routes) compute theirs from the widget type; this is for
+        # widgets whose shape is NODE-specific. Emitted verbatim; the frontend reads it to render.
+        self.widget_metadata = widget_metadata or {}
 
     def to_json(self) -> Dict[str, Any]:
         out: Dict[str, Any] = {
@@ -143,6 +155,8 @@ class ConfigField:
             out["showWhen"] = [c.to_json() for c in self.show_when]
         if self.template_code:
             out["templateCode"] = self.template_code
+        if self.widget_metadata:
+            out["widgetMetadata"] = self.widget_metadata
         return out
 
 
@@ -197,6 +211,10 @@ class Manifest:
         provider: str = "",
         capabilities: Optional[List[str]] = None,
         ai_usage: str = "",
+        coordinates: Optional[Dict[str, str]] = None,
+        streaming: bool = False,
+        production_mode_configurable: bool = False,
+        lane: str = "row",
     ):
         self.node_type = node_type
         self.name = name
@@ -235,6 +253,32 @@ class Manifest:
         # tooltip): how the node wires, the rule easy to get wrong, when to pick another node. The
         # assistant reads it to use the node right the first time. Advisory only. Empty = none.
         self.ai_usage = ai_usage
+        # The node's three INTERACTION COORDINATES ("El nodo como flecha") — a dict
+        # {origin, destination, cardinality, ports} with the engine's stable slugs. MANDATORY for a
+        # real node: leaving a world "exotic" (or omitting the dict) trips the catalog's exotic-world
+        # alert. Worlds: void/table/text/file/image/document. Cardinality:
+        # source/preserve/contract_selective/contract_total/expand/sink/unknown. Ports:
+        # single/fan_out/fan_in. Two nodes compose when destination(a) == origin(b).
+        self.coordinates = coordinates or {}
+        # STREAMING PRODUCTION (Slice 8): set True when this node's `logic` PRODUCES ITS OUTPUT
+        # INCREMENTALLY — it `yield`s items/chunks instead of returning a full list. The engine
+        # reads this to dispatch the node through the streaming path (result-chunk frames, bounded
+        # memory, pipeline overlap) rather than collecting one big batch. Only meaningful for a
+        # satellite node; a batch node leaves it False. The node's actual return type must match
+        # this declaration — the worker checks and fails a mismatch explicitly.
+        self.streaming = streaming
+        # PRODUCTION MODE (§11.5): when True, the user may retune how this node's STREAMED output is
+        # grouped downstream via the reserved `_production` override (per-item / chunk / batch),
+        # exactly like the core `csv_stream`. Only meaningful for a streaming node; a node that does
+        # not opt in ignores any `_production`. Left False by default (production is the node's own
+        # concern, opened to the user only where the node says it is safe).
+        self.production_mode_configurable = production_mode_configurable
+        # DATA LANE (Phase 3): "row" (default) exchanges N per-item dicts; "columnar" exchanges a
+        # pyarrow.Table (contiguous column buffers) so a bulk-numeric node pays no per-item parse at
+        # its boundaries. A columnar node's `logic(table, config)` receives a `pyarrow.Table` (or
+        # None for a source) and returns one — or an `Output` with a file, to LEAVE the lane (e.g. a
+        # renderer emitting a PNG). Opt in deliberately; almost every node stays "row".
+        self.lane = lane
 
     def to_json(self) -> Dict[str, Any]:
         out: Dict[str, Any] = {
@@ -266,11 +310,27 @@ class Manifest:
             out["capabilities"] = list(self.capabilities)
         if self.ai_usage:
             out["aiUsage"] = self.ai_usage
+        # The three interaction coordinates ("El nodo como flecha"), emitted as-is; pack.py copies
+        # them into node.json and the engine ships them to the assistant so it composes by matching
+        # worlds. Only emitted when declared.
+        if self.coordinates:
+            out["coordinates"] = dict(self.coordinates)
         # The tier is emitted so the packer/publisher can resolve it to a lockfile. It is not
         # part of the catalog descriptor the engine renders — it is packaging metadata, the same
         # category as `runtime`/`entrypoint`/`lockfile`.
         if self.tier:
             out["tier"] = self.tier
+        # Streaming production (Slice 8): only emitted when True, so a batch node's contract is
+        # unchanged. The engine's bundled-node loader reads it onto `BundledNode.streaming`.
+        if self.streaming:
+            out["streaming"] = True
+        # Data lane (Phase 3): only emitted when columnar, so a row node's contract is unchanged.
+        # The engine's bundled-node loader reads it onto `BundledNode.lane`.
+        if self.lane and self.lane != "row":
+            out["lane"] = self.lane
+        # Production-mode opt-in (§11.5): lets the user retune a streaming node's emission grouping.
+        if self.production_mode_configurable:
+            out["productionModeConfigurable"] = True
         return out
 
 
@@ -390,15 +450,39 @@ class Node:
 
     def logic(self, inputs: List[Item], config: Dict[str, Any]) -> Union[Output, List[Item]]:
         """Your logic: consume the input batch + config, return an `Output` (or, for the
-        single-port case, a plain list of items). Raise `NodeError` to fail cleanly."""
+        single-port case, a plain list of items). Raise `NodeError` to fail cleanly.
+
+        STREAMING (Slice 8): to produce incrementally, make `logic` a GENERATOR — `yield` an
+        `Output` (or a list) per chunk instead of returning one. The engine then streams your
+        output downstream frame by frame, with bounded memory and backpressure (the `yield`
+        blocks while the engine is busy). Declare `streaming=True` in your `Manifest` so the
+        engine dispatches you through the streaming path; the two MUST agree."""
         raise NotImplementedError("a node must implement logic()")
 
 
 def node(instance: Node) -> Callable[[List[Item], Dict[str, Any]], Any]:
-    """Adapt a `Node` to the module-level `run(inputs, config)` the satellite worker calls.
-    Normalizes the return: an `Output` -> its raw ports; a plain list -> the default port.
-    A `NodeError` propagates (the worker fails the node); anything else is your logic's
-    responsibility. Exposes `.manifest` for the `python -m workflow_node manifest` tool."""
+    """Adapt a `Node` to the module-level `run(...)` the satellite worker calls.
+
+    For a ROW node (the default) `run(inputs, config[, files])` normalizes the return: an `Output`
+    -> its raw ports; a plain list -> the default port; a generator -> streaming frames. For a
+    COLUMNAR node (`Manifest(lane="columnar")`) the worker instead calls `run(table, config)` with a
+    `pyarrow.Table` (or None for a source), and the return is passed through: a `pyarrow.Table` stays
+    columnar (the worker encodes it), an `Output` leaves the lane as a file (e.g. a PNG). A
+    `NodeError` propagates. Exposes `.manifest` for the `python -m workflow_node manifest` tool."""
+
+    manifest = instance.manifest()
+
+    if getattr(manifest, "lane", "row") == "columnar":
+        def run(table: Any, config: Dict[str, Any]) -> Any:
+            # No pyarrow import here: the SDK edge must stay importable without it (pack.py emits the
+            # manifest without the tier's deps). The worker does the Table/dict dispatch on the return.
+            result = instance.logic(table, config or {})
+            if isinstance(result, Output):
+                return result.to_raw()  # leaving the lane: a produced file (raster_image -> PNG)
+            return result  # a pyarrow.Table/RecordBatch — the worker encodes it to the Arrow buffer
+
+        run.manifest = manifest  # type: ignore[attr-defined]
+        return run
 
     def run(inputs: List[Item], config: Dict[str, Any], files: Any = None) -> Any:
         # `files` is passed ONLY to a logic() that declares it. Introspection rather than a
@@ -428,13 +512,38 @@ def node(instance: Node) -> Callable[[List[Item], Dict[str, Any]], Any]:
             return result.to_raw()
         if isinstance(result, list):
             return result
+        # STREAMING (Slice 8): a `logic` that `yield`s produces a GENERATOR here instead of a
+        # single Output. Return a generator of RAW FRAMES (each the same `{"ports": {...}}` shape a
+        # batch result has); the worker sends one `result_chunk` per frame and the engine consumes
+        # them incrementally. The node declares `streaming=True` in its manifest so the engine sets
+        # up the streaming dispatch; the two must agree, which is why a mismatch is made explicit at
+        # the worker/runner boundary rather than guessed at here.
+        if inspect.isgenerator(result):
+            return _normalize_frames(result)
         raise NodeError(
             "NODE_BAD_OUTPUT",
-            "logic() must return an Output or a list of items",
+            "logic() must return an Output or a list of items (or yield them, for a streaming node)",
         )
 
-    run.manifest = instance.manifest()  # type: ignore[attr-defined]
+    run.manifest = manifest  # type: ignore[attr-defined]
     return run
+
+
+def _normalize_frames(generator: Any):
+    """Adapts a streaming `logic` generator (which yields `Output`s or item lists) into a
+    generator of RAW frames the worker serializes — one per yield. Kept lazy: each frame is
+    normalized as it is pulled, so the node's `yield` and the wire stay in lockstep (which is
+    what lets backpressure reach the node)."""
+    for chunk in generator:
+        if isinstance(chunk, Output):
+            yield chunk.to_raw()
+        elif isinstance(chunk, list):
+            yield {"ports": {Output.DEFAULT_PORT: chunk}}
+        else:
+            raise NodeError(
+                "NODE_BAD_OUTPUT",
+                "a streaming logic() must yield an Output or a list of items",
+            )
 
 
 def _emit_manifest(main_path: str) -> str:
