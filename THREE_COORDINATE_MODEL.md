@@ -79,8 +79,28 @@ first three it is **not merely advisory: its boundary is a security concern.**
   bulk homogeneous **numeric** data: render grids, ODE solutions, chart series. See
   `WRITING_A_BUNDLED_NODE.md` §9.
 
-Declared under `lane` in the manifest (absent ⇒ `row`); the engine projects it onto the node
-descriptor (`NodeDescriptor.lane`) so the catalog, the canvas badge and the assistant can see it.
+Declared under `lane` in the manifest (absent ⇒ `row`). Engine-internal, it drives the columnar
+transport.
+
+### The lane is a PAIR: `(entry_lane, exit_lane)` — parallel to the world signature
+
+Like the world signature (`origin → destination`), the lane is really **per side**. A lane exists
+**only on a `table` side** — `row` vs `columnar` are two encodings of a *table*; a non-table side
+(`void`/`text`/`file`/`image`/`document`) has **no lane** (`""`). So the engine projects the pair onto
+the descriptor (`NodeDescriptor.entry_lane` / `exit_lane`) — derived from the world signature + the
+single `lane`, or declared explicitly for a future node whose two table sides differ. This is what
+tells the assistant/canvas exactly where the columnar lane is **entered**, **stayed on**, or **left**:
+
+| Node | Worlds | (entry, exit) | Badge |
+|---|---|---|---|
+| `pixel_grid` | void → table | `("", columnar)` | **columnar out** — a columnar source (enters the lane) |
+| `columnar_compute`, `colormap` | table → table | `(columnar, columnar)` | **columnar** — stays on the lane |
+| `raster_image`, `chart_*` | table → image | `(columnar, "")` | **columnar in** — consumes columnar, produces an image, so **nothing columnar follows it** |
+| `python_code`, `set` | table → table | `(row, row)` | *(none — row only)* |
+
+A heavy numeric pipeline is cheap when it flows `columnar out → columnar → columnar in`: one Arrow
+buffer, never materialized. The moment a `columnar` exit meets a `row` entry, the columnar→row bridge
+materializes N items (capped — see below).
 
 ### Why the lane boundary is a security frontier, not an optimization
 

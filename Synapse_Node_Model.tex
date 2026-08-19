@@ -718,6 +718,21 @@ composición ---que las tres coordenadas declaraban lícita en cuanto
 $\operatorname{dst}(a)=\operatorname{src}(b)$--- esconde ahora un matiz físico: si
 $a$ produce en un carril y $b$ consume en otro, \emph{alguien tiene que traducir}.
 
+En rigor el carril, como la firma de mundo, es un \emph{par}: $\lambda(f) =
+(\lambda_{\mathrm{ent}}, \lambda_{\mathrm{sal}})$, una etiqueta por cada lado de la
+flecha. Y hay una restricción que lo hace preciso: \emph{un carril solo existe sobre
+un lado cuyo mundo es \mundo{Tabla}} ---\texttt{row} y \texttt{columnar} son dos
+codificaciones de una tabla; un lado no-tabla (\mundo{Vacío}, \mundo{Imagen},
+\mundo{Archivo}\dots) no tiene carril---. Así el par distingue exactamente dónde se
+\emph{entra}, se \emph{permanece} o se \emph{sale} del carril columnar: una fuente
+como \texttt{pixel\_grid} es $(\varnothing, \texttt{columnar})$ ---entra al carril---;
+un \texttt{colormap} es $(\texttt{columnar},\texttt{columnar})$ ---permanece---; y un
+\texttt{raster\_image}, que consume columnar pero produce una \mundo{Imagen}, es
+$(\texttt{columnar}, \varnothing)$ ---\emph{sale} del carril, y nada columnar puede
+seguirlo---. Un nodo con una entrada y una salida \mundo{Tabla} en carriles distintos
+lo declararía explícito; en el catálogo actual el par se deriva de la firma de mundo
+más el carril del nodo.
+
 \subsection{El puente entre carriles no es gratis}
 
 Cuando un productor columnar se conecta a un consumidor por filas, el motor debe
